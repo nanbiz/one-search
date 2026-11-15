@@ -125,6 +125,9 @@ function toggleInPage(path, query, openOnly = false) {
     release();
     window.removeEventListener('message', onMessage);
     document.removeEventListener('fullscreenchange', onFullscreenChange);
+    // The keyboard comes back to the page before the frame that has it goes,
+    // so the release of the key that closed the overlay reaches the page.
+    dialog.focus({ preventScroll: true });
     if (dialog.open) dialog.close();
     dialog.remove();
     document.adoptedStyleSheets = document.adoptedStyleSheets.filter((sheet) => sheet !== backdrop);
