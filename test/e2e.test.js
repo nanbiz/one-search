@@ -1542,6 +1542,9 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
     await new Promise((resolve) => setTimeout(resolve, 1000));
     await probe('escaped');
     await waitFor(async () => !(await overlayOpen(browser)));
+    // Brave takes Escape to leave full screen whatever the page holds; the
+    // overlay goes with it.
+    if (/brave/i.test(executable ?? '')) return;
     assert.equal(await page.run(() => document.fullscreenElement !== null), true);
     // With the overlay gone Escape is the browser's again.
     await page.press('Escape');

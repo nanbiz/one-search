@@ -124,6 +124,7 @@ function toggleInPage(path, query, openOnly = false) {
     }
     release();
     window.removeEventListener('message', onMessage);
+    document.removeEventListener('fullscreenchange', onFullscreenChange);
     if (dialog.open) dialog.close();
     dialog.remove();
     document.adoptedStyleSheets = document.adoptedStyleSheets.filter((sheet) => sheet !== backdrop);
@@ -157,6 +158,12 @@ function toggleInPage(path, query, openOnly = false) {
   // Escape over the page before the frame has the keyboard closes the dialog
   // the browser's way; the overlay goes with it.
   dialog.addEventListener('close', close);
+  // A browser that takes Escape to leave full screen whatever the page holds
+  // closes the overlay with it on that press.
+  const onFullscreenChange = () => {
+    if (!document.fullscreenElement) close();
+  };
+  if (document.fullscreenElement) document.addEventListener('fullscreenchange', onFullscreenChange);
   document.documentElement.append(dialog);
   // The dialog opens empty, so it takes the keyboard itself rather than the
   // frame, which the browser would focus while it still loads; keys typed
