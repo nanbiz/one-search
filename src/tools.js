@@ -27,21 +27,38 @@ function toggleInPage(path, query, openOnly = false) {
   const open = document.getElementById(id);
   if (open) {
     if (openOnly) return 'open';
-    navigator.keyboard?.unlock();
-    open.remove();
+    // The dialog's close event runs the cleanup its opening set up; an
+    // overlay left without one is only removed.
+    open.dispatchEvent(new Event('close'));
+    if (open.isConnected) {
+      navigator.keyboard?.unlock();
+      open.remove();
+    }
     return 'closed';
   }
+  // The overlay is a modal dialog, which the browser draws and lets the
+  // pointer reach above everything on the page, a player in full screen
+  // included, with the page dimmed and blurred under it as its backdrop.
+  const dialog = document.createElement('dialog');
+  dialog.id = id;
+  dialog.style.cssText = 'all:initial;position:fixed;inset:0;width:100vw;height:100vh;max-width:none;max-height:none;'
+    + 'border:0;margin:0;padding:0;background:transparent;color-scheme:light dark;opacity:0';
+  dialog.tabIndex = -1;
+  const backdrop = new CSSStyleSheet();
+  backdrop.replaceSync(`#${id}:not([open]){display:none!important}#${id}::backdrop{background:transparent}#${id}.shown::backdrop{background:rgb(0 0 0 / 0.45);backdrop-filter:blur(3px)}`);
+  document.adoptedStyleSheets = [...document.adoptedStyleSheets, backdrop];
   const frame = document.createElement('iframe');
-  frame.id = id;
   frame.src = `${chrome.runtime.getURL(path)}?${query}`;
   frame.allow = 'clipboard-write';
-  frame.style.cssText = 'all:initial;position:fixed;inset:0;width:100vw;height:100vh;border:0;'
-    + 'margin:0;padding:0;background:rgb(0 0 0 / 0.45);backdrop-filter:blur(3px);color-scheme:light dark;'
-    + 'z-index:2147483647;opacity:0';
+  frame.style.cssText = 'all:initial;display:block;width:100%;height:100%;border:0;margin:0;padding:0;color-scheme:light dark';
+  const show = (shown) => {
+    dialog.style.opacity = shown ? '1' : '0';
+    dialog.classList.toggle('shown', shown);
+  };
   const focusedBefore = document.activeElement;
-  // Keys typed before the overlay has the keyboard are kept from the page and
-  // handed to the overlay once it is ready, so a fast word after the shortcut
-  // arrives whole.
+  // Keys typed and text pasted before the overlay has the keyboard are kept
+  // from the page and handed to the overlay once it is ready, so a fast word
+  // or a paste right after the shortcut arrives whole.
   let held = '';
   const heldKeys = new Set();
   const hold = (event) => {
@@ -58,27 +75,58 @@ function toggleInPage(path, query, openOnly = false) {
     event.preventDefault();
     event.stopImmediatePropagation();
   };
+  const holdPaste = (event) => {
+    held += event.clipboardData?.getData('text/plain') ?? '';
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  };
   const release = () => {
     window.removeEventListener('keydown', hold, true);
     window.removeEventListener('keyup', holdUp, true);
+    window.removeEventListener('paste', holdPaste, true);
   };
   window.addEventListener('keydown', hold, true);
   window.addEventListener('keyup', holdUp, true);
+  window.addEventListener('paste', holdPaste, true);
   // Over a page in full screen the browser takes Escape to leave it before
   // the page sees the key, so the overlay holds Escape while it is open: the
   // first press closes the overlay, and holding Escape still leaves full
   // screen. The overlay shows once the key is held, so an Escape pressed the
   // moment it appears reaches it.
+  // A browser that never settles the request leaves the overlay to show after
+  // a moment all the same.
   const escapeHeld = document.fullscreenElement && navigator.keyboard
-    ? navigator.keyboard.lock(['Escape']).then(() => {
-      if (!frame.isConnected) navigator.keyboard.unlock();
-    }, () => {})
+    ? Promise.race([
+      navigator.keyboard.lock(['Escape']).then(() => {
+        if (!frame.isConnected) navigator.keyboard.unlock();
+      }, () => {}),
+      new Promise((resolve) => setTimeout(resolve, 200)),
+    ])
     : Promise.resolve();
+  let closed = false;
   const close = () => {
-    navigator.keyboard?.unlock();
+    if (closed) return;
+    closed = true;
+    // Escape is held until a press that closed the overlay is let go, so its
+    // release does not reach the browser, which would leave full screen.
+    const letGo = () => {
+      window.removeEventListener('keyup', onKeyUp, true);
+      navigator.keyboard?.unlock();
+    };
+    const onKeyUp = (event) => {
+      if (event.key === 'Escape') letGo();
+    };
+    if (document.fullscreenElement) {
+      window.addEventListener('keyup', onKeyUp, true);
+      setTimeout(letGo, 1000);
+    } else {
+      letGo();
+    }
     release();
     window.removeEventListener('message', onMessage);
-    frame.remove();
+    if (dialog.open) dialog.close();
+    dialog.remove();
+    document.adoptedStyleSheets = document.adoptedStyleSheets.filter((sheet) => sheet !== backdrop);
     if (focusedBefore instanceof HTMLElement) focusedBefore.focus({ preventScroll: true });
   };
   // The frame shows once the overlay in it has drawn its bar, so the dimmed
@@ -87,14 +135,15 @@ function toggleInPage(path, query, openOnly = false) {
     if (event.source !== frame.contentWindow) return;
     if (event.data === 'synced-pins:ready') {
       escapeHeld.then(() => {
-        if (!frame.isConnected) return;
-        frame.style.opacity = '1';
+        if (!dialog.isConnected) return;
+        show(true);
+        frame.focus();
         release();
         if (held) frame.contentWindow.postMessage({ syncedPinsTyped: held }, '*');
       });
     }
     if (event.data === 'synced-pins:hide') {
-      frame.style.opacity = '0';
+      show(false);
       requestAnimationFrame(() => requestAnimationFrame(() => frame.contentWindow?.postMessage('synced-pins:hidden', '*')));
     }
     if (event.data === 'synced-pins:close') close();
@@ -102,10 +151,18 @@ function toggleInPage(path, query, openOnly = false) {
   window.addEventListener('message', onMessage);
   // An overlay that never gets ready leaves no invisible frame over the page.
   setTimeout(() => {
-    if (frame.isConnected && frame.style.opacity !== '1') close();
+    if (dialog.isConnected && dialog.style.opacity !== '1') close();
   }, 3000);
   frame.addEventListener('load', () => frame.focus());
-  document.documentElement.append(frame);
+  // Escape over the page before the frame has the keyboard closes the dialog
+  // the browser's way; the overlay goes with it.
+  dialog.addEventListener('close', close);
+  document.documentElement.append(dialog);
+  // The dialog opens empty, so it takes the keyboard itself rather than the
+  // frame, which the browser would focus while it still loads; keys typed
+  // until the frame takes the keyboard reach this page's listeners above.
+  dialog.showModal();
+  dialog.append(frame);
   return { opened: Date.now(), readyState: document.readyState };
 }
 

@@ -685,7 +685,7 @@ async function start() {
     return;
   }
   const { overlayQuery } = await chrome.storage.session.get('overlayQuery');
-  if (overlayQuery && overlayQuery.tabId === target.id && Date.now() - overlayQuery.at < KEEP_QUERY_MS) {
+  if (overlayQuery && !typedHere && overlayQuery.tabId === target.id && Date.now() - overlayQuery.at < KEEP_QUERY_MS) {
     query.value = overlayQuery.text;
     typed = overlayQuery.text;
     query.select();
