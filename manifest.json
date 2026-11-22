@@ -36,8 +36,7 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "src/overlay.html",
-        "src/switcher.html"
+        "src/overlay.html"
       ],
       "matches": [
         "<all_urls>"

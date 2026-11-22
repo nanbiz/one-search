@@ -358,21 +358,70 @@ function results(text) {
   ];
 }
 
-// With nothing typed the overlay lists the pins; nothing is selected until
-// the arrow keys move into the list.
-function pinRows() {
-  return pins.map((pin) => ({ title: pinName(pin), url: pin.url, favIconUrl: pin.favIconUrl, kind: 'Pinned', pick: () => selectPin(pin) }));
+// Each of the window's tabs has a key that picks it: Alt with the key, or
+// the key alone in number mode. Single keys come first, 1 to 9 then a to z,
+// and from the 36th tab on 0 followed by one of them.
+const KEYS = '123456789abcdefghijklmnopqrstuvwxyz';
+
+function keyOf(index) {
+  if (index < KEYS.length) return KEYS[index];
+  return index < 2 * KEYS.length ? `0${KEYS[index - KEYS.length]}` : '';
 }
+
+// The tab the overlay stands for: the page it is drawn over, or, as a tab of
+// its own, the tab it was opened from.
+function currentTabId() {
+  return mode === 'frame' ? target?.id : Number(params.get('back'));
+}
+
+// The window's tabs in the order of its tab strip, pinned ones first as the
+// strip has them; a pin's placeholder is shown as its pin.
+function tabRows() {
+  const pinOf = (tab) => pins.find((pin) => pin.tabId === tab.id)
+    ?? (isPlaceholder(tab) ? pins.find((pin) => pin.id === new URLSearchParams((tab.pendingUrl || tab.url).split('?')[1]).get('pin')) : undefined);
+  return tabs
+    .filter((tab) => tab.windowId === target.windowId && !isOverlay(tab))
+    .sort((a, b) => a.index - b.index)
+    .map((tab, index) => {
+      const pin = pinOf(tab);
+      const current = tab.id === currentTabId();
+      return {
+        title: pin ? pinName(pin) : tab.title || tab.url,
+        url: pin ? pin.url : tab.pendingUrl || tab.url,
+        favIconUrl: pin ? pin.favIconUrl : tab.favIconUrl,
+        kind: current ? 'Current' : tab.pinned ? 'Pinned' : '',
+        key: keyOf(index),
+        current,
+        pick: () => (pin ? selectPin(pin) : selectTab(tab)),
+      };
+    });
+}
+
+// With nothing typed, or in number mode, the overlay lists the window's
+// tabs; nothing is selected until the arrow keys move into the list.
+function listingTabs() {
+  return numberMode || !typed.trim();
+}
+
+// Rows of tabs in number mode run down in columns, as many as it takes to
+// keep a column to ten, up to four.
+const PER_COLUMN = 10;
+const MAX_COLUMNS = 4;
 
 function render() {
   const text = typed;
   showFilesOffer();
-  items = text.trim() ? results(text) : pinRows();
+  items = listingTabs() ? tabRows() : results(text);
   selected = Math.min(selected, Math.max(items.length - 1, 0));
+  const columns = numberMode ? Math.min(MAX_COLUMNS, Math.max(1, Math.ceil(items.length / PER_COLUMN))) : 1;
+  box.classList.toggle('numbers', numberMode);
+  box.dataset.columns = String(columns);
+  resultsList.style.gridTemplateRows = columns > 1 ? `repeat(${Math.ceil(items.length / columns)}, auto)` : '';
   resultsList.replaceChildren();
   items.forEach((item, index) => {
     const element = row(item);
-    element.classList.toggle('selected', index === selected && (text.trim() !== '' || keyboardOnPins));
+    element.classList.toggle('selected', index === selected && (!listingTabs() || keyboardOnPins));
+    element.classList.toggle('current', item.current === true);
     element.addEventListener('mousedown', (event) => event.preventDefault());
     element.addEventListener('click', () => pick(index));
     resultsList.append(element);
@@ -399,11 +448,17 @@ function row(item) {
   const kind = document.createElement('span');
   kind.className = 'kind';
   kind.textContent = item.kind;
+  if (item.key !== undefined) {
+    const key = document.createElement('span');
+    key.className = 'key';
+    key.textContent = item.key;
+    element.append(key);
+  }
   element.append(icon, title, site, kind);
   return element;
 }
 
-// The pin list takes the selection only once the arrow keys reach it.
+// The list of tabs takes the selection only once the arrow keys reach it.
 let keyboardOnPins = false;
 
 async function pick(index) {
@@ -437,7 +492,7 @@ async function pick(index) {
 
 function move(step) {
   if (items.length === 0) return;
-  if (!typed.trim() && !keyboardOnPins) {
+  if (listingTabs() && !keyboardOnPins) {
     keyboardOnPins = true;
     selected = step > 0 ? 0 : items.length - 1;
   } else {
@@ -519,19 +574,75 @@ query.addEventListener('keydown', (event) => {
   }
 });
 
+// Number mode: Alt tapped on its own turns typing off and the tabs' keys on,
+// so a key alone picks its tab; Alt again or Escape turns typing back on,
+// with what was typed kept.
+const box = document.getElementById('box');
+let numberMode = false;
+// The first half of a two key label, 0, waiting for the second.
+let pendingKey = '';
+let altAlone = false;
+
+function setNumberMode(on) {
+  numberMode = on;
+  pendingKey = '';
+  keyboardOnPins = false;
+  selected = 0;
+  if (on) uncomplete();
+  render();
+  if (!on) complete();
+}
+
+// The key a keyboard event stands for as a tab's label, read from the key's
+// place so Alt, which changes the character on some layouts, keeps it.
+function labelKey(event) {
+  const digit = /^Digit([0-9])$/.exec(event.code);
+  if (digit) return digit[1];
+  const letter = /^Key([A-Z])$/.exec(event.code);
+  return letter ? letter[1].toLowerCase() : null;
+}
+
+function pickKey(label) {
+  const index = items.findIndex((item) => item.key === label);
+  if (index !== -1) pick(index);
+}
+
 document.addEventListener('keydown', (event) => {
   const key = event.key;
-  // Alt with a digit selects a tab, as it does on the page under the overlay.
-  const digit = /^Digit([1-9])$/.exec(event.code);
-  if (digit && event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && !navigator.platform.startsWith('Mac')) {
+  altAlone = key === 'Alt' && !event.repeat && !event.ctrlKey && !event.metaKey && !event.shiftKey;
+  if (key === 'Alt') {
     event.preventDefault();
-    chrome.runtime.sendMessage({ type: 'switchTab', number: Number(digit[1]) }).catch(() => {});
-    close();
+    return;
+  }
+  // Alt with a tab's key picks that tab, whatever is typed.
+  const label = labelKey(event);
+  if (label && label !== '0' && event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && !navigator.platform.startsWith('Mac')) {
+    event.preventDefault();
+    if (!listingTabs()) {
+      items = tabRows();
+    }
+    pickKey(label);
+    return;
+  }
+  if (numberMode && !event.ctrlKey && !event.metaKey && !event.altKey && label) {
+    event.preventDefault();
+    if (pendingKey) {
+      pickKey(pendingKey + label);
+      pendingKey = '';
+    } else if (label === '0') {
+      pendingKey = '0';
+    } else {
+      pickKey(label);
+    }
     return;
   }
   if (key === 'Escape') {
     event.preventDefault();
-    dismiss();
+    if (numberMode) setNumberMode(false);
+    else dismiss();
+  } else if (numberMode && key.length === 1 && !event.ctrlKey && !event.metaKey) {
+    // Typing is off in number mode.
+    event.preventDefault();
   } else if (key === 'ArrowDown' || (event.ctrlKey && key === 'n')) {
     event.preventDefault();
     move(1);
@@ -540,8 +651,20 @@ document.addEventListener('keydown', (event) => {
     move(-1);
   } else if (key === 'Enter') {
     event.preventDefault();
-    if (typed.trim() || keyboardOnPins) pick(selected);
+    if (!listingTabs() || keyboardOnPins) pick(selected);
   }
+});
+
+document.addEventListener('keyup', (event) => {
+  if (event.key !== 'Alt') return;
+  event.preventDefault();
+  if (altAlone) setNumberMode(!numberMode);
+  altAlone = false;
+});
+
+// Alt let go outside the overlay is no tap.
+window.addEventListener('blur', () => {
+  altAlone = false;
 });
 
 // A click beside the box over a page closes the overlay, as clicking outside

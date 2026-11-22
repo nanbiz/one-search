@@ -1,7 +1,6 @@
 import { createPinSync } from './pins.js';
 import { isCtrlT, overlayShortcut } from './shortcut.js';
 import { closeTabs, overlayReady, replaceNewTab, showClosableCount, toggleOverlay } from './tools.js';
-import { keepSwitcher, switchTab, switcherTabs } from './tab-switcher.js';
 
 const sync = createPinSync(chrome);
 
@@ -75,15 +74,10 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
 });
 chrome.windows.onCreated.addListener(() => promptSetup(), normalWindows);
 chrome.runtime.onStartup.addListener(layoutChanged);
-chrome.permissions.onAdded.addListener(() => keepSwitcher().catch(() => {}));
-chrome.permissions.onRemoved.addListener(() => keepSwitcher().catch(() => {}));
-keepSwitcher().catch(() => {});
+// Versions that listed the tabs while Alt was held registered a page script
+// for it, which outlives an update.
+chrome.scripting.unregisterContentScripts({ ids: ['tab-switcher'] }).catch(() => {});
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
-  if (message?.type === 'switcherTabs' && sender.tab) {
-    switcherTabs(sender.tab.windowId).then(respond, () => respond([]));
-    return true;
-  }
-  if (message?.type === 'switchTab' && sender.tab) switchTab(sender.tab.windowId, message.number).catch(() => {});
   if (message === 'summon' && sender.tab) sync.note({ type: 'summon', tabId: sender.tab.id, windowId: sender.tab.windowId });
   if (message?.type === 'openSetup') openSetup(message.windowId);
   if (message?.type === 'overlayReady') overlayReady(message.tabId, message.frameStarted, message.ready);

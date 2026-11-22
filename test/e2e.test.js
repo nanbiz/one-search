@@ -1108,6 +1108,7 @@ function overlayResults(frame) {
   return frame.run(() => [...document.querySelectorAll('#results .row')].map((row) => ({
     title: row.querySelector('.title').textContent,
     kind: row.querySelector('.kind').textContent,
+    key: row.querySelector('.key')?.textContent,
     selected: row.classList.contains('selected'),
   })));
 }
@@ -1608,14 +1609,17 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
     }
   });
 
-  overlayTest('with nothing typed the overlay lists the pins, and offers history until allowed or dismissed', async () => {
+  overlayTest('with nothing typed the overlay lists the window\'s tabs with their keys, and offers history until allowed or dismissed', async () => {
     const { worker, browser } = await open();
     const { windows: [A] } = await threeWindowsWithPins(worker);
     await focus(worker, A);
     const frame = await pressOverlayShortcut(browser, 'A');
     await waitFor(async () => (await overlayResults(frame)).length > 0);
+    // The window's tabs in strip order, its pins first, each with its key,
+    // and nothing selected.
     const rows = await overlayResults(frame);
-    assert.ok(rows.every((row) => row.kind === 'Pinned' && !row.selected), JSON.stringify(rows));
+    assert.deepEqual(rows.map(({ title, kind, key, selected }) => [title, kind, key, selected]),
+      [['a', 'Pinned', '1', false], ['b', 'Pinned', '2', false], ['A', 'Current', '3', false]]);
     assert.equal(await frame.run(() => document.getElementById('history').hidden), false);
     await frame.run(() => document.getElementById('history-dismiss').click());
     await frame.press('Escape', { wait: false });
@@ -1656,124 +1660,103 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
     assert.equal((await tabsIn(worker, A)).length, 2);
   });
 
-  // A copy that asks for every page up front, which an unpacked extension is
-  // granted without the dialog the welcome page's Allow opens.
-  async function withPagesAllowed(fn) {
-    const copy = await mkdtemp(join(tmpdir(), 'synced-pins-pages-'));
-    try {
-      await cp(extensionPath, copy, { recursive: true, filter: (path) => !/\/(node_modules|dist|\.git)(\/|$)/.test(path) });
-      const manifest = JSON.parse(await readFile(join(copy, 'manifest.json'), 'utf8'));
-      manifest.host_permissions = ['<all_urls>'];
-      delete manifest.optional_host_permissions;
-      await writeFile(join(copy, 'manifest.json'), JSON.stringify(manifest));
-      await fn(copy);
-    } finally {
-      await rm(copy, { recursive: true, force: true });
-    }
-  }
-
-  function pressAlt(page, type) {
-    return current.browser.connection.send('Input.dispatchKeyEvent', {
-      type, key: 'Alt', code: 'AltLeft', modifiers: type === 'keyUp' ? 0 : 1, windowsVirtualKeyCode: 18, nativeVirtualKeyCode: 18,
-    }, page.sessionId);
-  }
-
-  async function pressAltDigit(page, digit) {
+  // Alt on its own, sent to the overlay's frame, where the keyboard is.
+  async function tapAlt(frame) {
     for (const type of ['rawKeyDown', 'keyUp']) {
       await current.browser.connection.send('Input.dispatchKeyEvent', {
-        type, key: digit, code: `Digit${digit}`, modifiers: 1, windowsVirtualKeyCode: 48 + Number(digit), nativeVirtualKeyCode: 48 + Number(digit),
-      }, page.sessionId);
+        type, key: 'Alt', code: 'AltLeft', modifiers: type === 'keyUp' ? 0 : 1, windowsVirtualKeyCode: 18, nativeVirtualKeyCode: 18,
+      }, frame.sessionId);
     }
   }
 
-  const switcherShown = async (browser) => (await browser.targets()).find((info) => info.type === 'iframe' && info.url.includes('/src/switcher.html'));
+  async function pressKey(frame, key, { alt = false } = {}) {
+    const code = /^[0-9]$/.test(key) ? `Digit${key}` : `Key${key.toUpperCase()}`;
+    for (const type of ['rawKeyDown', 'keyUp']) {
+      await current.browser.connection.send('Input.dispatchKeyEvent', {
+        type, key, code, modifiers: alt ? 1 : 0, windowsVirtualKeyCode: key.toUpperCase().charCodeAt(0), nativeVirtualKeyCode: key.toUpperCase().charCodeAt(0),
+      }, frame.sessionId);
+    }
+  }
 
-  test('holding Alt lists the window\'s tabs numbered as Alt with a digit selects them, and a digit selects its tab', async () => {
-    await withPagesAllowed(async (copy) => {
-      const { worker, browser } = await open({ extension: copy });
-      const A = await createWindow(worker, 'A');
-      const names = ['b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k'];
-      for (const name of names) await openTab(worker, A, name, { active: false });
-      await waitFor(() => worker.run(async (url) => (await chrome.tabs.query({ url })).some((tab) => tab.status === 'complete'), pageUrl('A')));
-      const page = await browser.page(pageUrl('A'));
-      await current.browser.connection.send('Page.bringToFront', {}, page.sessionId);
-      await current.browser.connection.send('Emulation.setFocusEmulationEnabled', { enabled: true }, page.sessionId);
-      // The extension puts its script into the pages open when it starts.
-      const tabId = (await tabsIn(worker, A)).find((tab) => tab.active).id;
-      await waitFor(() => worker.run(async (tabId) => (await chrome.scripting.executeScript({ target: { tabId }, func: () => globalThis.syncedPinsSwitcher === true }))[0].result, tabId));
-      await pressAlt(page, 'rawKeyDown');
-      const target = await waitFor(() => switcherShown(browser));
-      const list = await browser.attach(target.targetId);
-      await waitFor(() => page.run(() => document.querySelector('iframe[src*="switcher.html"]')?.style.opacity === '1'));
-      const rows = await list.run(() => [...document.querySelectorAll('.row')].map((row) => row.querySelector('.number').textContent));
-      const order = (await tabsIn(worker, A)).sort((a, b) => a.index - b.index);
-      assert.equal(order.length, 11);
-      assert.deepEqual(rows, ['1', '2', '3', '4', '5', '6', '7', '8', '', '', '9']);
-      await pressAltDigit(page, '3');
-      await pressAlt(page, 'keyUp');
-      await waitFor(async () => (await tabsIn(worker, A)).find((tab) => tab.active)?.id === order[2].id);
-      await waitFor(async () => !(await switcherShown(browser)));
-      await waitFor(() => worker.run(async (id) => (await chrome.tabs.get(id)).status === 'complete', order[2].id));
-      const third = await browser.page(order[2].pendingUrl || order[2].url);
-      await current.browser.connection.send('Emulation.setFocusEmulationEnabled', { enabled: true }, third.sessionId);
-      await pressAltDigit(third, '9');
-      await waitFor(async () => (await tabsIn(worker, A)).find((tab) => tab.active)?.id === order.at(-1).id);
+  const activeIn = async (worker, windowId) => (await tabsIn(worker, windowId)).find((tab) => tab.active)?.id;
+
+  overlayTest('a tap on Alt turns typing off, and a tab\'s key alone picks it; Escape turns typing back on with the text kept', async () => {
+    const { worker, browser } = await open();
+    const A = await createWindow(worker, 'A');
+    const names = ['b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l'];
+    for (const name of names) await openTab(worker, A, name, { active: false });
+    const order = (await tabsIn(worker, A));
+    const frame = await pressOverlayShortcut(browser, 'A');
+    await waitFor(() => frame.run(() => document.activeElement?.id === 'query'));
+    await frame.run(() => {
+      const query = document.getElementById('query');
+      query.value = 'kept';
+      query.dispatchEvent(new InputEvent('input', { inputType: 'insertText', data: 'kept' }));
     });
+    await tapAlt(frame);
+    await waitFor(() => frame.run(() => document.getElementById('box').classList.contains('numbers')));
+    // The field is gone and every tab is listed with its key.
+    assert.equal(await frame.run(() => getComputedStyle(document.getElementById('bar')).display), 'none');
+    const rows = await overlayResults(frame);
+    assert.deepEqual(rows.map((row) => row.key), ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c']);
+    // A letter types nothing; Escape brings the text back.
+    await pressKey(frame, 'z');
+    await frame.press('Escape');
+    await waitFor(() => frame.run(() => !document.getElementById('box').classList.contains('numbers')));
+    assert.equal(await frame.run(() => document.getElementById('query').value), 'kept');
+    assert.equal(await overlayOpen(browser), true);
+    // Again, and the 11th tab's key picks it.
+    await tapAlt(frame);
+    await waitFor(() => frame.run(() => document.getElementById('box').classList.contains('numbers')));
+    await pressKey(frame, 'b');
+    await waitFor(async () => (await activeIn(worker, A)) === order[10].id);
+    await waitFor(async () => !(await overlayOpen(browser)));
   });
 
-  test('a page that takes Alt with a digit for itself keeps it, and the tab stays', async (context) => {
-    if (/vivaldi/i.test(executable ?? '')) return context.skip('in Vivaldi on the test runner the held Alt of this page never reaches the extension');
-    await withPagesAllowed(async (copy) => {
-      const { worker, browser } = await open({ extension: copy });
-      const A = await createWindow(worker, 'A');
-      await openTab(worker, A, 'b', { active: false });
-      await waitFor(() => worker.run(async (url) => (await chrome.tabs.query({ url })).some((tab) => tab.status === 'complete'), pageUrl('A')));
-      const page = await browser.page(pageUrl('A'));
-      await current.browser.connection.send('Page.bringToFront', {}, page.sessionId);
-      await current.browser.connection.send('Emulation.setFocusEmulationEnabled', { enabled: true }, page.sessionId);
-      const tabId = (await tabsIn(worker, A)).find((tab) => tab.active).id;
-      await waitFor(() => worker.run(async (tabId) => (await chrome.scripting.executeScript({ target: { tabId }, func: () => globalThis.syncedPinsSwitcher === true }))[0].result, tabId));
-      // A chat app switching its own chats on Alt with a digit.
-      await page.run(() => {
-        window.taken = [];
-        document.addEventListener('keydown', (event) => {
-          if (event.altKey && /^Digit[1-9]$/.test(event.code)) {
-            event.preventDefault();
-            window.taken.push(event.code);
-          }
-        });
-      });
-      // The page has the keyboard, as one being worked in does.
-      for (const type of ['mousePressed', 'mouseReleased']) {
-        await current.browser.connection.send('Input.dispatchMouseEvent', { type, x: 5, y: 5, button: 'left', clickCount: 1 }, page.sessionId);
-      }
-      // Alt is held until the list shows, as the user holds it.
-      await pressAlt(page, 'rawKeyDown');
-      await waitFor(() => switcherShown(browser));
-      await pressAltDigit(page, '2');
-      await pressAlt(page, 'keyUp');
-      await waitFor(() => page.run(() => window.taken.includes('Digit2')));
-      await waitFor(async () => !(await switcherShown(browser)));
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      assert.equal((await tabsIn(worker, A)).find((tab) => tab.active)?.id, tabId);
+  overlayTest('Alt with a tab\'s key picks it while typing', async () => {
+    const { worker, browser } = await open();
+    const A = await createWindow(worker, 'A');
+    for (const name of ['b', 'c']) await openTab(worker, A, name, { active: false });
+    const order = await tabsIn(worker, A);
+    const frame = await pressOverlayShortcut(browser, 'A');
+    await waitFor(() => frame.run(() => document.activeElement?.id === 'query'));
+    await frame.run(() => {
+      const query = document.getElementById('query');
+      query.value = 'something';
+      query.dispatchEvent(new InputEvent('input', { inputType: 'insertText', data: 'something' }));
     });
+    await pressKey(frame, '3', { alt: true });
+    await waitFor(async () => (await activeIn(worker, A)) === order[2].id);
   });
 
-  test('Alt let go at once shows no tab list', async () => {
-    await withPagesAllowed(async (copy) => {
-      const { worker, browser } = await open({ extension: copy });
-      await createWindow(worker, 'A');
-      await waitFor(() => worker.run(async (url) => (await chrome.tabs.query({ url })).some((tab) => tab.status === 'complete'), pageUrl('A')));
-      const page = await browser.page(pageUrl('A'));
-      await current.browser.connection.send('Emulation.setFocusEmulationEnabled', { enabled: true }, page.sessionId);
-      const tabId = (await worker.run((url) => chrome.tabs.query({ url }), pageUrl('A')))[0].id;
-      await waitFor(() => worker.run(async (tabId) => (await chrome.scripting.executeScript({ target: { tabId }, func: () => globalThis.syncedPinsSwitcher === true }))[0].result, tabId));
-      await pressAlt(page, 'rawKeyDown');
-      await pressAlt(page, 'keyUp');
-      // Longer than Alt is held before the list shows.
-      await new Promise((resolve) => setTimeout(resolve, 600));
-      assert.equal(await switcherShown(browser), undefined);
+  overlayTest('number mode shows a few tabs as one list and forty in four columns', async () => {
+    const { worker, browser } = await open();
+    const A = await createWindow(worker, 'A');
+    for (let n = 0; n < 4; n++) await openTab(worker, A, `t${n}`, { active: false });
+    let frame = await pressOverlayShortcut(browser, 'A');
+    await waitFor(() => frame.run(() => document.activeElement?.id === 'query'));
+    await tapAlt(frame);
+    await waitFor(() => frame.run(() => document.getElementById('box').dataset.columns === '1' && document.getElementById('box').classList.contains('numbers')));
+    await frame.press('Escape');
+    await frame.press('Escape', { wait: false });
+    await waitFor(async () => !(await overlayOpen(browser)));
+    for (let n = 4; n < 39; n++) await openTab(worker, A, `t${n}`, { active: false });
+    frame = await pressOverlayShortcut(browser, 'A');
+    await waitFor(() => frame.run(() => document.activeElement?.id === 'query'));
+    await tapAlt(frame);
+    await waitFor(() => frame.run(() => document.getElementById('box').dataset.columns === '4'));
+    const layout = await frame.run(() => {
+      const rows = [...document.querySelectorAll('#results .row')];
+      const columns = new Set(rows.map((row) => Math.round(row.getBoundingClientRect().left)));
+      const results = document.getElementById('results');
+      return { rows: rows.length, columns: columns.size, keys: rows.map((row) => row.querySelector('.key').textContent).slice(-5), scrolls: results.scrollHeight > results.clientHeight + 1 };
     });
+    assert.deepEqual(layout, { rows: 40, columns: 4, keys: ['01', '02', '03', '04', '05'], scrolls: false });
+    // A two key label: 0, then the key.
+    const order = await tabsIn(worker, A);
+    await pressKey(frame, '0');
+    await pressKey(frame, '2');
+    await waitFor(async () => (await activeIn(worker, A)) === order[36].id);
   });
 
   overlayTest('with pages allowed, a New Tab page goes and the overlay opens over the page before it', async () => {

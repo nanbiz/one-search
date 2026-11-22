@@ -257,3 +257,86 @@ body.tab #box {
 .offer + .offer {
   border-top: 1px solid var(--line);
 }
+
+/* Each listed tab's key: muted while typing, where Alt with it picks the tab,
+   and a filled key in number mode, where it alone does. */
+.row .key {
+  flex: none;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 3px;
+  box-sizing: border-box;
+  border-radius: 6px;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.85em;
+  line-height: 22px;
+  text-align: center;
+}
+
+.row.current {
+  background: var(--line);
+}
+
+.row.current.selected {
+  background: var(--selected);
+}
+
+/* Number mode: typing is off, so the field goes and the box takes the
+   accent ring; the tabs run down in as many columns as they need. */
+#box.numbers {
+  box-shadow: 0 0 0 2px var(--selected), var(--shadow);
+  border-color: var(--selected);
+}
+
+#box.numbers #bar,
+#box.numbers .offer {
+  display: none;
+}
+
+#box.numbers #results {
+  border-top: 0;
+}
+
+#box.numbers .row .key {
+  background: var(--selected);
+  color: #fff;
+}
+
+#box.numbers:not([data-columns="1"]) #results {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  column-gap: 6px;
+  max-height: calc(100vh - 120px);
+  padding: 8px;
+}
+
+#box.numbers:not([data-columns="1"]) .row {
+  height: 38px;
+  padding: 0 10px;
+  border-radius: 8px;
+  min-width: 0;
+}
+
+#box.numbers:not([data-columns="1"]) .row .site,
+#box.numbers:not([data-columns="1"]) .row .kind {
+  display: none;
+}
+
+#box.numbers:not([data-columns="1"]) .row .title {
+  flex: 1;
+  max-width: none;
+}
+
+body.frame #box.numbers[data-columns="2"],
+body.tab #box.numbers[data-columns="2"] {
+  width: min(92vw, 900px);
+}
+
+body.frame #box.numbers[data-columns="3"],
+body.frame #box.numbers[data-columns="4"],
+body.tab #box.numbers[data-columns="3"],
+body.tab #box.numbers[data-columns="4"] {
+  width: min(94vw, 1150px);
+}
