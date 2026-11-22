@@ -11,7 +11,8 @@
     "favicon",
     "activeTab",
     "scripting",
-    "search"
+    "search",
+    "alarms"
   ],
   "incognito": "not_allowed",
   "background": {

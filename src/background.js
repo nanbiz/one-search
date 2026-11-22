@@ -74,13 +74,20 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
 });
 chrome.windows.onCreated.addListener(() => promptSetup(), normalWindows);
 chrome.runtime.onStartup.addListener(layoutChanged);
+// The browser stops an idle worker after half a minute and starts it again
+// for the next event, which a shortcut arriving then waits for; an alarm as
+// often as the browser allows keeps it running, so the overlay opens without
+// that start.
+chrome.alarms.create('keep-warm', { periodInMinutes: 0.5 });
+chrome.alarms.onAlarm.addListener(() => {});
+
 // Versions that listed the tabs while Alt was held registered a page script
 // for it, which outlives an update.
 chrome.scripting.unregisterContentScripts({ ids: ['tab-switcher'] }).catch(() => {});
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (message === 'summon' && sender.tab) sync.note({ type: 'summon', tabId: sender.tab.id, windowId: sender.tab.windowId });
   if (message?.type === 'openSetup') openSetup(message.windowId);
-  if (message?.type === 'overlayReady') overlayReady(message.tabId, message.frameStarted, message.ready);
+  if (message?.type === 'overlayReady') overlayReady(message.tabId, message.frameStarted, message.ready, message.loaded);
   if (message?.type === 'closeTabs') {
     chrome.tabs.get(message.tabId).then((tab) => closeTabs(tab, { othersOnly: message.othersOnly === true })).catch(() => {});
   }

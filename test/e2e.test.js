@@ -1182,6 +1182,62 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
     assert.equal(await page.run(() => window.pagePastes), 0);
   });
 
+  overlayTest('the overlay\'s bar shows at once with what is typed, before its frame has loaded, where the overlay then draws it', async (context) => {
+    const { worker, browser } = await open();
+    const A = await createWindow(worker, 'A');
+    await waitFor(() => worker.run(async (url) => (await chrome.tabs.query({ url })).some((tab) => tab.active && tab.status === 'complete'), pageUrl('A')));
+    await focus(worker, A);
+    await waitFor(() => worker.run(async (id) => (await chrome.windows.getLastFocused()).id === id, A));
+    const page = await browser.page(pageUrl('A'));
+    await current.browser.connection.send('Page.bringToFront', {}, page.sessionId);
+    await current.browser.connection.send('Emulation.setFocusEmulationEnabled', { enabled: true }, page.sessionId);
+    const paused = await shortcutWithFrameHeld(page);
+    if (!paused) return context.skip('the shortcut gave no access to the page this time');
+    for (const letter of 'gh') {
+      for (const type of ['keyDown', 'keyUp']) {
+        await current.browser.connection.send('Input.dispatchKeyEvent', {
+          type, key: letter, code: `Key${letter.toUpperCase()}`, text: type === 'keyDown' ? letter : undefined,
+          windowsVirtualKeyCode: letter.toUpperCase().charCodeAt(0), nativeVirtualKeyCode: letter.toUpperCase().charCodeAt(0),
+        }, page.sessionId);
+      }
+    }
+    // The bar drawn by the page, read through its closed shadow root.
+    const shellBar = async () => {
+      const { root } = await current.browser.connection.send('DOM.getDocument', { depth: -1, pierce: true }, page.sessionId);
+      const find = (node) => {
+        if (node.attributes?.includes('class') && node.attributes[node.attributes.indexOf('class') + 1] === 'box') return node;
+        for (const child of [...(node.children ?? []), ...(node.shadowRoots ?? [])]) {
+          const found = find(child);
+          if (found) return found;
+        }
+        return null;
+      };
+      const box = find(root);
+      if (!box) return null;
+      const { model } = await current.browser.connection.send('DOM.getBoxModel', { backendNodeId: box.backendNodeId }, page.sessionId);
+      const text = await current.browser.connection.send('DOM.resolveNode', { backendNodeId: box.backendNodeId }, page.sessionId)
+        .then(({ object }) => current.browser.connection.send('Runtime.callFunctionOn', { objectId: object.objectId, functionDeclaration: 'function () { return this.textContent; }', returnByValue: true }, page.sessionId));
+      const [x, y, right] = model.border;
+      return { x: Math.round(x), y: Math.round(y), width: Math.round(right - x), text: text.result.value };
+    };
+    const early = await waitFor(async () => {
+      const bar = await shellBar();
+      return bar?.text === 'gh' ? bar : null;
+    });
+    assert.equal(await page.run(() => document.getElementById('synced-pins-overlay').dataset.ready), undefined);
+    await current.browser.connection.send('Runtime.runIfWaitingForDebugger', {}, paused);
+    const frame = await overlayFrame(browser);
+    await waitFor(() => page.run(() => document.getElementById('synced-pins-overlay').dataset.ready === '1'));
+    await waitFor(() => frame.run(() => document.getElementById('query').value.startsWith('gh')));
+    const box = await frame.run(() => {
+      const rect = document.getElementById('box').getBoundingClientRect();
+      return { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width) };
+    });
+    // The same box, to the pixel the two measurements round to.
+    for (const side of ['x', 'y', 'width']) assert.ok(Math.abs(early[side] - box[side]) <= 1, `${side}: ${JSON.stringify({ early, box })}`);
+    assert.equal(await shellBar(), null);
+  });
+
   overlayTest('the shortcut opens the overlay over the page without a tab, and Escape closes it', async () => {
     const { worker, browser } = await open();
     const A = await createWindow(worker, 'A');
@@ -1531,17 +1587,13 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
     await current.browser.connection.send('Runtime.evaluate', { expression: "document.getElementById('player').requestFullscreen()", userGesture: true, awaitPromise: true }, page.sessionId);
     await waitFor(() => page.run(() => document.fullscreenElement?.id === 'player'));
     const frame = await pressOverlayShortcut(browser, 'A');
-    const probe = (step) => page.run(async (step) => JSON.stringify({ step, lock: (await navigator.permissions.query({ name: 'keyboard-lock' }).catch((e) => ({ state: e.message }))).state, fullscreen: document.fullscreenElement !== null, overlay: document.getElementById('synced-pins-overlay')?.style.opacity ?? null, focus: document.hasFocus() }), step).then((line) => console.log('# PROBE', line), (e) => console.log('# PROBE', step, e.message));
-    await probe('opened');
     await waitFor(() => frame.run(() => document.activeElement?.id === 'query'));
-    await waitFor(() => page.run(() => document.getElementById('synced-pins-overlay')?.style.opacity === '1'));
-    await probe('shown');
+    await waitFor(() => page.run(() => document.getElementById('synced-pins-overlay')?.dataset.ready === '1'));
     // The overlay is drawn over the player, not under it.
     assert.equal(await page.run(() => document.elementFromPoint(innerWidth / 2, innerHeight / 2)?.closest('#synced-pins-overlay') !== null), true);
     // The key goes in through the page, the way the keyboard sends it.
     await page.press('Escape');
     await new Promise((resolve) => setTimeout(resolve, 1000));
-    await probe('escaped');
     await waitFor(async () => !(await overlayOpen(browser)));
     // Brave and Vivaldi take Escape to leave full screen whatever the page
     // holds; the overlay goes with it.

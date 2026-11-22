@@ -42,15 +42,38 @@ function toggleInPage(path, query, openOnly = false) {
   const dialog = document.createElement('dialog');
   dialog.id = id;
   dialog.style.cssText = 'all:initial;position:fixed;inset:0;width:100vw;height:100vh;max-width:none;max-height:none;'
-    + 'border:0;margin:0;padding:0;background:transparent;color-scheme:light dark;opacity:0';
+    + 'border:0;margin:0;padding:0;background:transparent;color-scheme:light dark';
   dialog.tabIndex = -1;
+  dialog.className = 'shown';
   const backdrop = new CSSStyleSheet();
   backdrop.replaceSync(`#${id}:not([open]){display:none!important}#${id}::backdrop{background:transparent}#${id}.shown::backdrop{background:rgb(0 0 0 / 0.45);backdrop-filter:blur(3px)}`);
   document.adoptedStyleSheets = [...document.adoptedStyleSheets, backdrop];
   const frame = document.createElement('iframe');
   frame.src = `${chrome.runtime.getURL(path)}?${query}`;
   frame.allow = 'clipboard-write';
-  frame.style.cssText = 'all:initial;display:block;width:100%;height:100%;border:0;margin:0;padding:0;color-scheme:light dark';
+  frame.style.cssText = 'all:initial;position:absolute;inset:0;display:block;width:100%;height:100%;border:0;margin:0;padding:0;color-scheme:light dark;opacity:0';
+  // The overlay's bar is drawn at once in the page, with what is typed in
+  // it, so the overlay appears with the key press however long its own frame
+  // takes to load on a busy page; the frame takes its place once it has drawn
+  // the same bar. It sits in a closed shadow root, out of the page's reach
+  // and styles, and matches overlay.css's box and bar.
+  const shell = document.createElement('div');
+  shell.style.cssText = 'all:initial;position:absolute;inset:0';
+  const shellRoot = shell.attachShadow({ mode: 'closed' });
+  shellRoot.innerHTML = '<style>'
+    + '.box{position:fixed;left:50%;transform:translateX(-50%);top:max(24px,calc(50vh - 180px));width:min(66.6vw,750px);'
+    + 'background:#fafafa;color:#27272a;border:1px solid #e4e4e7;border-radius:15px;box-shadow:0 16px 60px rgb(0 0 0 / 0.28);'
+    + 'font:15px system-ui,sans-serif;overflow:hidden}'
+    + '.bar{display:flex;align-items:center;gap:12px;padding:0 18px}'
+    + 'svg{width:18px;height:18px;flex:none}'
+    + '.text{flex:1;min-width:0;padding:16px 0;font-size:1.15em;white-space:pre;overflow:hidden}'
+    + '.text:empty::before{content:"Search or enter address";color:#71717a}'
+    + '@media (prefers-color-scheme:dark){.box{background:#1f1f23;color:#e4e4e7;border-color:#34343a}.text:empty::before{color:#8b8b93}}'
+    + '</style><div class="box"><div class="bar">'
+    + '<svg viewBox="0 0 16 16" fill="none" stroke="#8b8b93" stroke-width="1.6" stroke-linecap="round"><circle cx="7" cy="7" r="4.6"/><path d="m10.4 10.4 3.6 3.6"/></svg>'
+    + '<span class="text"></span></div></div>';
+  const shellText = shellRoot.querySelector('.text');
+  let ready = false;
   const show = (shown) => {
     dialog.style.opacity = shown ? '1' : '0';
     dialog.classList.toggle('shown', shown);
@@ -66,6 +89,7 @@ function toggleInPage(path, query, openOnly = false) {
     if (event.key.length === 1) held += event.key;
     else if (event.key === 'Backspace') held = held.slice(0, -1);
     else return;
+    shellText.textContent = held;
     heldKeys.add(event.code);
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -77,6 +101,7 @@ function toggleInPage(path, query, openOnly = false) {
   };
   const holdPaste = (event) => {
     held += event.clipboardData?.getData('text/plain') ?? '';
+    shellText.textContent = held;
     event.preventDefault();
     event.stopImmediatePropagation();
   };
@@ -133,13 +158,16 @@ function toggleInPage(path, query, openOnly = false) {
     document.adoptedStyleSheets = document.adoptedStyleSheets.filter((sheet) => sheet !== backdrop);
     if (focusedBefore instanceof HTMLElement) focusedBefore.focus({ preventScroll: true });
   };
-  // The frame shows once the overlay in it has drawn its bar, so the dimmed
-  // page and the bar appear together.
+  // The frame shows once the overlay in it has drawn its bar.
   function onMessage(event) {
     if (event.source !== frame.contentWindow) return;
     if (event.data === 'synced-pins:ready') {
       escapeHeld.then(() => {
         if (!dialog.isConnected) return;
+        ready = true;
+        dialog.dataset.ready = '1';
+        frame.style.opacity = '1';
+        shell.remove();
         show(true);
         frame.focus();
         release();
@@ -155,7 +183,7 @@ function toggleInPage(path, query, openOnly = false) {
   window.addEventListener('message', onMessage);
   // An overlay that never gets ready leaves no invisible frame over the page.
   setTimeout(() => {
-    if (dialog.isConnected && dialog.style.opacity !== '1') close();
+    if (dialog.isConnected && !ready) close();
   }, 3000);
   frame.addEventListener('load', () => frame.focus());
   // Escape over the page before the frame has the keyboard closes the dialog
@@ -172,7 +200,7 @@ function toggleInPage(path, query, openOnly = false) {
   // frame, which the browser would focus while it still loads; keys typed
   // until the frame takes the keyboard reach this page's listeners above.
   dialog.showModal();
-  dialog.append(frame);
+  dialog.append(shell, frame);
   return { opened: Date.now(), readyState: document.readyState };
 }
 
@@ -264,21 +292,30 @@ async function removeNewTab(tab) {
 // own beside the page, the way a New Tab page opens.
 // The last overlays opened over a page, with how long each step took, kept
 // in local storage so a slow opening on a user's machine can be read back:
-// the key's arrival, the page running the code that adds the overlay (it
-// waits for the page's own work), and the overlay's bar ready in its frame.
+// the key's arrival, the page running the code that adds the overlay and
+// draws its bar at once (it waits for the page's own work), the overlay's
+// frame starting, its data read, and its own bar ready.
 const TIMINGS = 20;
 const opening = new Map();
+// When this worker started: a key arriving just after it had the browser
+// wake the worker first, which the timings tell apart.
+const workerStarted = Date.now();
 
 async function noteTiming(timing) {
   const { overlayTimings = [] } = await chrome.storage.local.get('overlayTimings');
   await chrome.storage.local.set({ overlayTimings: [...overlayTimings, timing].slice(-TIMINGS) });
 }
 
-export function overlayReady(tabId, frameStarted, ready) {
+export function overlayReady(tabId, frameStarted, ready, loaded) {
   const timing = opening.get(tabId);
   if (!timing) return;
   opening.delete(tabId);
-  noteTiming({ ...timing, frameStarted: Math.round(frameStarted - timing.key), ready: ready - timing.key });
+  noteTiming({
+    ...timing,
+    frameStarted: Math.round(frameStarted - timing.key),
+    ...(loaded ? { loaded: loaded - timing.key } : {}),
+    ready: ready - timing.key,
+  });
 }
 
 export async function toggleOverlay(tab) {
@@ -297,7 +334,7 @@ export async function toggleOverlay(tab) {
       } catch {
         // No address to name.
       }
-      opening.set(tab.id, { at: new Date(key).toISOString(), site, loading: tab.status === 'loading', readyState: result.readyState, pageRan: result.opened - key, injected: Date.now() - key, key });
+      opening.set(tab.id, { at: new Date(key).toISOString(), site, loading: tab.status === 'loading', readyState: result.readyState, workerAge: key - workerStarted, pageRan: result.opened - key, injected: Date.now() - key, key });
       setTimeout(() => opening.delete(tab.id), 10_000);
     }
     return;

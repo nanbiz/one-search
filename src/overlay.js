@@ -791,14 +791,19 @@ async function start() {
   offerSetup();
   offerHistory();
   offerPages();
-  const self = mode === 'tab' ? await chrome.tabs.getCurrent() : null;
+  // Everything the first picture needs is read at once.
+  let self;
   let dismissals;
-  [tabs, { pins = [] }, filesAllowed, dismissals] = await Promise.all([
+  let kept;
+  [self, tabs, { pins = [] }, filesAllowed, dismissals, { overlayQuery: kept }] = await Promise.all([
+    mode === 'tab' ? chrome.tabs.getCurrent() : null,
     chrome.tabs.query({ windowType: 'normal' }),
     chrome.storage.session.get('pins'),
     chrome.extension.isAllowedFileSchemeAccess(),
     chrome.storage.local.get('filesDismissed'),
+    chrome.storage.session.get('overlayQuery'),
   ]);
+  const loaded = Date.now();
   filesDismissed = dismissals.filesDismissed === true;
   onFilePage = isFileAddress(tabs.find((tab) => tab.id === Number(params.get('back')))?.url ?? '');
   pins = pins.filter((pin) => pin.url);
@@ -807,10 +812,9 @@ async function start() {
     close();
     return;
   }
-  const { overlayQuery } = await chrome.storage.session.get('overlayQuery');
-  if (overlayQuery && !typedHere && overlayQuery.tabId === target.id && Date.now() - overlayQuery.at < KEEP_QUERY_MS) {
-    query.value = overlayQuery.text;
-    typed = overlayQuery.text;
+  if (kept && !typedHere && kept.tabId === target.id && Date.now() - kept.at < KEEP_QUERY_MS) {
+    query.value = kept.text;
+    typed = kept.text;
     query.select();
   }
   render();
@@ -821,7 +825,7 @@ async function start() {
   requestAnimationFrame(() => {
     if (mode === 'frame') {
       window.parent.postMessage('synced-pins:ready', '*');
-      chrome.runtime.sendMessage({ type: 'overlayReady', tabId: target.id, frameStarted: performance.timeOrigin, ready: Date.now() }).catch(() => {});
+      chrome.runtime.sendMessage({ type: 'overlayReady', tabId: target.id, frameStarted: performance.timeOrigin, loaded, ready: Date.now() }).catch(() => {});
     }
     setTimeout(remember);
   });
