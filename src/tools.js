@@ -339,7 +339,14 @@ async function openOverPicture(tab) {
   const image = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality: 70 }).catch(() => null);
   if (image) await chrome.storage.session.set({ overlayPicture: { tabId: tab.id, image } }).catch(() => {});
   const query = new URLSearchParams({ mode: 'tab', closes: '1', back: tab.id, picture: '1' });
-  await chrome.tabs.create({ windowId: tab.windowId, index: tab.index + 1, active: true, url: chrome.runtime.getURL(`${overlayPath}?${query}`) });
+  const created = await chrome.tabs.create({ windowId: tab.windowId, index: tab.index + 1, active: true, url: chrome.runtime.getURL(`${overlayPath}?${query}`) }).catch(() => null);
+  return created?.id;
+}
+
+// Closes the overlay over a page the way its own close does. Runs in the
+// page.
+function closeInPage() {
+  document.getElementById('synced-pins-overlay')?.dispatchEvent(new Event('close'));
 }
 
 export async function toggleOverlay(tab) {
@@ -362,9 +369,18 @@ export async function toggleOverlay(tab) {
       : injection);
     const [{ result } = {}] = answer === 'late' ? [{ result: 'late' }] : answer;
     if (result === 'late') {
-      injection.catch(() => {});
       noteTiming({ at: new Date(key).toISOString(), site: hostnameOf(tab.url), workerAge: key - workerStarted, late: true });
-      await openOverPicture(tab);
+      const overlayTab = await openOverPicture(tab);
+      // The page may still have got to it in time while its answer was on
+      // its way: an overlay it opened goes, as the tab has it now, and a
+      // press that closed its overlay takes the tab with it.
+      injection.then(([{ result: late } = {}]) => {
+        if (late?.opened) {
+          chrome.scripting.executeScript({ target: { tabId: tab.id }, func: closeInPage }).catch(() => {});
+        } else if (late === 'closed' && overlayTab) {
+          chrome.tabs.remove(overlayTab).catch(() => {});
+        }
+      }, () => {});
       return;
     }
     if (result?.opened) {

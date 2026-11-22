@@ -320,7 +320,9 @@ async function dismiss() {
 }
 
 async function keepQuery() {
-  const text = typed;
+  // A search of one site is not kept: its text alone would come back as a
+  // search of the web.
+  const text = siteSearch ? '' : typed;
   await chrome.storage.session.set({ overlayQuery: { text, tabId: target?.id, at: Date.now() } });
 }
 
@@ -704,6 +706,7 @@ function glide(change) {
 // each key typed.
 new ResizeObserver(placeSheet).observe(box);
 window.addEventListener('resize', placeSheet);
+window.addEventListener('scroll', placeSheet, true);
 
 function setNumberMode(on) {
   numberMode = on;
@@ -766,7 +769,7 @@ document.addEventListener('keydown', (event) => {
       return;
     }
   }
-  if (key === 'Backspace' && siteSearch && query.value === '') {
+  if (key === 'Backspace' && siteSearch && !numberMode && query.value === '') {
     event.preventDefault();
     leaveSiteSearch();
     return;
