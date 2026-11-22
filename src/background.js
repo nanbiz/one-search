@@ -1,6 +1,7 @@
 import { createPinSync } from './pins.js';
 import { isCtrlT, overlayShortcut } from './shortcut.js';
 import { closeTabs, overlayReady, replaceNewTab, showClosableCount, toggleOverlay } from './tools.js';
+import { keepLearningSearch, learnSearch } from './site-search.js';
 
 const sync = createPinSync(chrome);
 
@@ -84,7 +85,11 @@ chrome.alarms.onAlarm.addListener(() => {});
 // Versions that listed the tabs while Alt was held registered a page script
 // for it, which outlives an update.
 chrome.scripting.unregisterContentScripts({ ids: ['tab-switcher'] }).catch(() => {});
+chrome.permissions.onAdded.addListener(() => keepLearningSearch().catch(() => {}));
+chrome.permissions.onRemoved.addListener(() => keepLearningSearch().catch(() => {}));
+keepLearningSearch().catch(() => {});
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
+  if (message?.type === 'openSearch' && sender.tab && sender.frameId === 0 && typeof message.href === 'string') learnSearch(sender.url, message.href).catch(() => {});
   if (message === 'summon' && sender.tab) sync.note({ type: 'summon', tabId: sender.tab.id, windowId: sender.tab.windowId });
   if (message?.type === 'openSetup') openSetup(message.windowId);
   if (message?.type === 'overlayReady') overlayReady(message.tabId, message.frameStarted, message.ready, message.loaded);

@@ -25,6 +25,7 @@ const MAX_ACTIONS = 5;
 const MAX_TABS = 6;
 
 const query = document.getElementById('query');
+const chip = document.getElementById('chip');
 const resultsList = document.getElementById('results');
 document.body.classList.add(mode);
 
@@ -184,6 +185,56 @@ function recalled(text) {
     return found;
   };
   return { sites, pages: [...take(remembered.history, MAX_PAGES, 'History'), ...take(remembered.bookmarks, MAX_BOOKMARKS, 'Bookmark')] };
+}
+
+// Sites with a search of their own, from the list shipped with the extension
+// and the ones learned from the sites visited, each with the address that
+// searches it, {{{s}}} standing for the search. Read once the overlay shows,
+// as the list is large.
+let searchAddresses = null;
+
+async function readSearchAddresses() {
+  const [shipped, { learnedSearch = {} }] = await Promise.all([
+    fetch(chrome.runtime.getURL('src/site-search.json')).then((response) => response.json()).catch(() => ({})),
+    chrome.storage.local.get('learnedSearch'),
+  ]);
+  searchAddresses = { ...learnedSearch, ...shipped };
+  if (!numberMode && !siteSearch) render();
+}
+
+function searchAddressOf(url) {
+  const host = hostOf(url ?? '');
+  return host && searchAddresses ? searchAddresses[host] ?? null : null;
+}
+
+// Searching one site: Tab on a site that has a search of its own puts the
+// site in the field, and what is typed then searches it.
+let siteSearch = null;
+
+function enterSiteSearch(item) {
+  siteSearch = { host: hostOf(item.url), url: item.url, address: searchAddressOf(item.url) };
+  chip.replaceChildren(iconImage(item.url, null), Object.assign(document.createElement('span'), { textContent: siteSearch.host }));
+  chip.hidden = false;
+  query.placeholder = '';
+  uncomplete();
+  typed = '';
+  query.value = '';
+  selected = 0;
+  render();
+}
+
+function leaveSiteSearch() {
+  siteSearch = null;
+  chip.hidden = true;
+  query.placeholder = 'Search or enter address';
+  selected = 0;
+  render();
+}
+
+function siteSearchItems(text) {
+  if (!text.trim()) return [];
+  const url = siteSearch.address.replaceAll('{{{s}}}', encodeURIComponent(text.trim()));
+  return [{ title: text.trim(), url: siteSearch.url, favIconUrl: null, kind: 'Search', site: siteSearch.host, pick: () => openAddress(url) }];
 }
 
 // A pin's name: its own title, else that of its open tab, else its site.
@@ -403,6 +454,7 @@ function tabRows() {
         favIconUrl: pin ? pin.favIconUrl : tab.favIconUrl,
         kind: current ? 'Current' : tab.pinned ? 'Pinned' : '',
         key: keyOf(index),
+        tabId: tab.id,
         current,
         pick: () => (pin ? selectPin(pin) : selectTab(tab)),
       };
@@ -412,7 +464,7 @@ function tabRows() {
 // With nothing typed, or in number mode, the overlay lists the window's
 // tabs; nothing is selected until the arrow keys move into the list.
 function listingTabs() {
-  return numberMode || !typed.trim();
+  return numberMode || (!siteSearch && !typed.trim());
 }
 
 // Rows of tabs in number mode run down in columns, as many as it takes to
@@ -423,16 +475,26 @@ const MAX_COLUMNS = 4;
 function render() {
   const text = typed;
   showFilesOffer();
-  items = listingTabs() ? tabRows() : results(text);
+  items = listingTabs() ? tabRows() : siteSearch ? siteSearchItems(text) : results(text);
   selected = Math.min(selected, Math.max(items.length - 1, 0));
   const columns = numberMode ? Math.min(MAX_COLUMNS, Math.max(1, Math.ceil(items.length / PER_COLUMN))) : 1;
   box.classList.toggle('numbers', numberMode);
+  document.body.classList.toggle('numbers', numberMode);
   box.dataset.columns = String(columns);
   resultsList.style.gridTemplateRows = columns > 1 ? `repeat(${Math.ceil(items.length / columns)}, auto)` : '';
   resultsList.replaceChildren();
   items.forEach((item, index) => {
     const element = row(item);
-    element.classList.toggle('selected', index === selected && (!listingTabs() || keyboardOnPins));
+    if (item.tabId !== undefined) element.dataset.key = String(item.tabId);
+    const isSelected = index === selected && (!listingTabs() || keyboardOnPins);
+    element.classList.toggle('selected', isSelected);
+    // The selected site that has a search of its own takes Tab to search it.
+    if (isSelected && item.kind === 'Site' && searchAddressOf(item.url)) {
+      const key = document.createElement('span');
+      key.className = 'tabkey';
+      key.append(Object.assign(document.createElement('img'), { src: 'tab.svg', alt: '', className: 'glyph' }), 'Tab');
+      element.querySelector('.kind').before(key);
+    }
     element.classList.toggle('current', item.current === true);
     element.addEventListener('mousedown', (event) => event.preventDefault());
     element.addEventListener('click', () => pick(index));
@@ -456,7 +518,7 @@ function row(item) {
   title.textContent = item.title;
   const site = document.createElement('span');
   site.className = 'site';
-  site.textContent = item.url && item.kind !== 'Open' && item.kind !== 'Site' ? siteOf(item.url) : '';
+  site.textContent = item.site ?? (item.url && item.kind !== 'Open' && item.kind !== 'Site' ? siteOf(item.url) : '');
   const kind = document.createElement('span');
   kind.className = 'kind';
   kind.textContent = item.kind;
@@ -526,7 +588,7 @@ const measure = document.createElement('canvas').getContext('2d');
 // the site's front page, behind it.
 function complete() {
   const top = items[0];
-  if (!completing || selected !== 0 || !top || top.kind !== 'Site' || !typed || /\s/.test(typed)
+  if (siteSearch || !completing || selected !== 0 || !top || top.kind !== 'Site' || !typed || /\s/.test(typed)
     || !top.title.toLowerCase().startsWith(typed.toLowerCase()) || top.title.length === typed.length) {
     uncomplete();
     return;
@@ -595,32 +657,53 @@ let numberMode = false;
 let pendingKey = '';
 let altAlone = false;
 
-// The box changes size in a short glide, from where it was to where the
-// change puts it, its content fading in, rather than in one frame.
+// A change of the box moves what stays from where it was to where it goes,
+// and fades in what is new: each tab's row slides to its new place and the
+// box's surface scales to its new size. Only position, scale and opacity
+// move, which the browser animates without laying the page out again on each
+// frame, so the motion stays smooth while the overlay's process is busy.
 const GLIDE = { duration: 180, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' };
+const sheet = document.getElementById('sheet');
 
-// The box's own width and height, inside its border, which is what an
-// animation of them sets.
-function innerSize() {
-  const style = getComputedStyle(box);
-  const across = parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth);
-  const down = parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
-  const { width, height } = box.getBoundingClientRect();
-  return { width: width - across, height: height - down };
+function placeSheet() {
+  const { left, top, width, height } = box.getBoundingClientRect();
+  Object.assign(sheet.style, { left: `${left}px`, top: `${top}px`, width: `${width}px`, height: `${height}px` });
+}
+
+function rowPlaces() {
+  return new Map([...resultsList.querySelectorAll('.row[data-key]')].map((row) => [row.dataset.key, row.getBoundingClientRect()]));
 }
 
 function glide(change) {
-  const from = innerSize();
+  const before = box.getBoundingClientRect();
+  const rows = rowPlaces();
   change();
+  placeSheet();
   if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  const to = innerSize();
-  if (Math.abs(from.width - to.width) < 1 && Math.abs(from.height - to.height) < 1) return;
-  box.animate([
-    { width: `${from.width}px`, height: `${from.height}px` },
-    { width: `${to.width}px`, height: `${to.height}px` },
-  ], GLIDE);
-  resultsList.animate([{ opacity: 0 }, { opacity: 1 }], GLIDE);
+  const after = box.getBoundingClientRect();
+  if (after.width > 0 && after.height > 0 && (before.width !== after.width || before.height !== after.height || before.top !== after.top)) {
+    sheet.animate([
+      { transform: `translate(${before.left - after.left}px, ${before.top - after.top}px) scale(${before.width / after.width}, ${before.height / after.height})` },
+      { transform: 'none' },
+    ], GLIDE);
+  }
+  for (const row of resultsList.querySelectorAll('.row')) {
+    const was = rows.get(row.dataset.key);
+    if (!was) {
+      row.animate([{ opacity: 0 }, { opacity: 1 }], GLIDE);
+      continue;
+    }
+    const now = row.getBoundingClientRect();
+    if (was.left !== now.left || was.top !== now.top) {
+      row.animate([{ transform: `translate(${was.left - now.left}px, ${was.top - now.top}px)` }, { transform: 'none' }], GLIDE);
+    }
+  }
 }
+
+// The surface follows the box whenever its size changes otherwise, as with
+// each key typed.
+new ResizeObserver(placeSheet).observe(box);
+window.addEventListener('resize', placeSheet);
 
 function setNumberMode(on) {
   numberMode = on;
@@ -673,6 +756,19 @@ document.addEventListener('keydown', (event) => {
     } else {
       pickKey(label);
     }
+    return;
+  }
+  if (key === 'Tab' && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && !numberMode && !siteSearch) {
+    const item = items[selected];
+    if (item?.kind === 'Site' && searchAddressOf(item.url)) {
+      event.preventDefault();
+      enterSiteSearch(item);
+      return;
+    }
+  }
+  if (key === 'Backspace' && siteSearch && query.value === '') {
+    event.preventDefault();
+    leaveSiteSearch();
     return;
   }
   if (key === 'Escape') {
@@ -840,7 +936,18 @@ async function start() {
     chrome.extension.isAllowedFileSchemeAccess(),
     chrome.storage.local.get('filesDismissed'),
     chrome.storage.session.get('overlayQuery'),
-  ]);
+    params.get('picture') === '1' ? chrome.storage.session.get('overlayPicture') : {},
+  ]).then((read) => {
+    // Opened as a tab because the page was busy: the page's picture, dimmed
+    // and blurred, stands behind the box as the page itself would.
+    const { overlayPicture } = read.pop();
+    if (overlayPicture && overlayPicture.tabId === Number(params.get('back'))) {
+      document.body.classList.add('picture');
+      document.body.style.setProperty('--picture', `url("${overlayPicture.image}")`);
+      chrome.storage.session.remove('overlayPicture').catch(() => {});
+    }
+    return read;
+  });
   const loaded = Date.now();
   filesDismissed = dismissals.filesDismissed === true;
   onFilePage = isFileAddress(tabs.find((tab) => tab.id === Number(params.get('back')))?.url ?? '');
@@ -867,6 +974,7 @@ async function start() {
       chrome.runtime.sendMessage({ type: 'overlayReady', tabId: target.id, frameStarted: performance.timeOrigin, loaded, ready: Date.now() }).catch(() => {});
     }
     setTimeout(remember);
+    setTimeout(readSearchAddresses);
   });
 }
 

@@ -1239,6 +1239,39 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
     assert.equal(await shellBar(), null);
   });
 
+  overlayTest('over a page too busy to answer the overlay opens as a tab over its picture, and Escape goes back', async () => {
+    const { worker, browser } = await open();
+    const A = await createWindow(worker, 'A');
+    await waitFor(() => worker.run(async (url) => (await chrome.tabs.query({ url })).some((tab) => tab.active && tab.status === 'complete'), pageUrl('A')));
+    const [{ id }] = await tabsIn(worker, A);
+    await focus(worker, A);
+    await waitFor(() => worker.run(async (windowId) => (await chrome.windows.getLastFocused()).id === windowId, A));
+    const page = await browser.page(pageUrl('A'));
+    await current.browser.connection.send('Page.bringToFront', {}, page.sessionId);
+    await current.browser.connection.send('Emulation.setFocusEmulationEnabled', { enabled: true }, page.sessionId);
+    // The page's main thread is busy for most of a second, as a page with a
+    // stuttering video can be.
+    await page.run(() => {
+      setTimeout(() => {
+        const end = Date.now() + 800;
+        while (Date.now() < end);
+      }, 0);
+    });
+    pressShortcut(page);
+    const overlayTab = () => worker.run(async (windowId) => (await chrome.tabs.query({ windowId }))
+      .find((tab) => (tab.pendingUrl || tab.url).includes('/src/overlay.html?mode=tab') && (tab.pendingUrl || tab.url).includes('picture=1'))?.id, A);
+    await waitFor(overlayTab);
+    const overlay = await browser.page((url) => url.includes('/src/overlay.html?mode=tab'));
+    await waitFor(() => overlay.run(() => document.body.classList.contains('picture')));
+    // The page's own code, run once the page is free, opens nothing more.
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    assert.equal(await page.run(() => document.getElementById('synced-pins-overlay')), null);
+    await current.browser.connection.send('Emulation.setFocusEmulationEnabled', { enabled: true }, overlay.sessionId);
+    await waitFor(() => overlay.run(() => document.activeElement?.id === 'query'));
+    await overlay.press('Escape', { wait: false });
+    await waitFor(async () => !(await overlayTab()) && (await tabsIn(worker, A)).find((tab) => tab.active)?.id === id);
+  });
+
   overlayTest('the shortcut opens the overlay over the page without a tab, and Escape closes it', async () => {
     const { worker, browser } = await open();
     const A = await createWindow(worker, 'A');
@@ -1665,6 +1698,44 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
     }
   });
 
+  overlayTest('Tab on a site with a search of its own searches that site', async () => {
+    const copy = await mkdtemp(join(tmpdir(), 'synced-pins-history-'));
+    try {
+      await cp(extensionPath, copy, { recursive: true, filter: (path) => !/\/(node_modules|dist|\.git)(\/|$)/.test(path) });
+      const manifest = JSON.parse(await readFile(join(copy, 'manifest.json'), 'utf8'));
+      manifest.permissions.push('history', 'bookmarks');
+      delete manifest.optional_permissions;
+      await writeFile(join(copy, 'manifest.json'), JSON.stringify(manifest));
+      const { worker, browser } = await open({ extension: copy });
+      const A = await createWindow(worker, 'A');
+      await worker.run(() => chrome.history.addUrl({ url: 'https://www.youtube.com/' }));
+      const frame = await pressOverlayShortcut(browser, 'A');
+      await typeInto(frame, 'youtu');
+      // The site row, selected, carries the Tab key once the list of
+      // searches is read.
+      await waitFor(() => frame.run(() => document.querySelector('#results .row.selected .tabkey') !== null));
+      await frame.press('Tab');
+      await waitFor(() => frame.run(() => !document.getElementById('chip').hidden));
+      assert.deepEqual(await frame.run(() => [document.getElementById('chip').textContent, document.getElementById('query').value]), ['youtube.com', '']);
+      await typeInto(frame, 'cats');
+      await waitFor(async () => (await overlayResults(frame)).some((row) => row.title === 'cats' && row.kind === 'Search'));
+      await frame.press('Enter', { wait: false });
+      await waitFor(async () => (await tabsIn(worker, A)).some((tab) => tab.url === 'https://www.youtube.com/results?search_query=cats'));
+      // Backspace on an empty field leaves the site.
+      const [{ id: first }] = await tabsIn(worker, A);
+      await worker.run((id) => chrome.tabs.update(id, { active: true }), first);
+      const again = await pressOverlayShortcut(browser, 'A');
+      await typeInto(again, 'youtu');
+      await waitFor(() => again.run(() => document.querySelector('#results .row.selected .tabkey') !== null));
+      await again.press('Tab');
+      await waitFor(() => again.run(() => !document.getElementById('chip').hidden));
+      await again.press('Backspace');
+      await waitFor(() => again.run(() => document.getElementById('chip').hidden));
+    } finally {
+      await rm(copy, { recursive: true, force: true });
+    }
+  });
+
   overlayTest('with nothing typed the overlay lists the window\'s tabs with their keys, and offers history until allowed or dismissed', async () => {
     const { worker, browser } = await open();
     const { windows: [A] } = await threeWindowsWithPins(worker);
@@ -1807,6 +1878,7 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
     await waitFor(() => frame.run(() => document.activeElement?.id === 'query'));
     await tapAlt(frame);
     await waitFor(() => frame.run(() => document.getElementById('box').dataset.columns === '4'));
+    await waitFor(() => frame.run(() => document.getAnimations().length === 0));
     const layout = await frame.run(() => {
       const rows = [...document.querySelectorAll('#results .row')];
       const columns = new Set(rows.map((row) => Math.round(row.getBoundingClientRect().left)));

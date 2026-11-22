@@ -38,9 +38,8 @@ body.frame {
 body.frame #box {
   margin-top: max(24px, calc(50vh - 180px));
   width: min(66.6vw, 750px);
-  border: 1px solid var(--line);
+  border: 1px solid transparent;
   border-radius: 15px;
-  box-shadow: var(--shadow);
 }
 
 body.tab {
@@ -50,13 +49,30 @@ body.tab {
 body.tab #box {
   width: min(66.6vw, 750px);
   margin: max(24px, calc(50vh - 180px)) auto 0;
-  border: 1px solid var(--line);
+  border: 1px solid transparent;
   border-radius: 15px;
 }
 
 #box {
-  background: var(--surface);
+  position: relative;
+  z-index: 1;
   overflow: hidden;
+}
+
+/* The box's surface, border and shadow are a layer of their own behind its
+   content, laid over the box, so a change of the box's size animates by
+   scaling this layer alone, which the browser does without laying the page
+   out again on each frame. */
+#sheet {
+  position: fixed;
+  z-index: 0;
+  box-sizing: border-box;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  box-shadow: var(--shadow);
+  transform-origin: 0 0;
+  pointer-events: none;
   transition: box-shadow 180ms, border-color 180ms;
 }
 
@@ -285,7 +301,7 @@ body.tab #box {
 
 /* Number mode: typing is off, so the field goes and the box takes the
    accent ring; the tabs run down in as many columns as they need. */
-#box.numbers {
+body.numbers #sheet {
   box-shadow: 0 0 0 2px var(--selected), var(--shadow);
   border-color: var(--selected);
 }
@@ -340,4 +356,60 @@ body.frame #box.numbers[data-columns="4"],
 body.tab #box.numbers[data-columns="3"],
 body.tab #box.numbers[data-columns="4"] {
   width: min(94vw, 1150px);
+}
+
+/* Tab on a site with a search of its own searches it: a key cap on the
+   selected row, and the site as a chip in the field once Tab is pressed. */
+.row .tabkey {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 7px;
+  border: 1px solid currentColor;
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+.row .tabkey img {
+  width: 13px;
+  height: 13px;
+}
+
+#chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+  padding: 4px 10px 4px 8px;
+  border-radius: 8px;
+  background: var(--selected);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+#chip[hidden] {
+  display: none;
+}
+
+#chip img {
+  width: 16px;
+  height: 16px;
+}
+
+/* The overlay opened as a tab for a busy page: the page's picture behind
+   the box, dimmed and blurred as the overlay over the page shows it. */
+body.tab.picture {
+  background: #000 var(--picture) center top / 100% auto no-repeat;
+}
+
+body.tab.picture::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 0.45);
+  backdrop-filter: blur(3px);
 }

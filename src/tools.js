@@ -22,9 +22,12 @@ function isOverlayTab(tab) {
 // Opens the overlay over the page in the tab, centred over the page dimmed and
 // blurred as Zen does, or closes it where it is open already. Runs in the
 // page, so it is self-contained.
-function toggleInPage(path, query, openOnly = false) {
+function toggleInPage(path, query, openOnly = false, deadline = 0) {
   const id = 'synced-pins-overlay';
   const open = document.getElementById(id);
+  // A page that got to this after the worker stopped waiting for it has had
+  // the overlay opened as a tab instead.
+  if (!open && deadline && Date.now() > deadline) return 'late';
   if (open) {
     if (openOnly) return 'open';
     // The dialog's close event runs the cleanup its opening set up; an
@@ -318,6 +321,27 @@ export function overlayReady(tabId, frameStarted, ready, loaded) {
   });
 }
 
+// How long the page has to start drawing the overlay before it opens as a
+// tab instead.
+const PAGE_ANSWER_MS = 150;
+
+function hostnameOf(url) {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return '';
+  }
+}
+
+// The overlay as a tab of its own beside the page, showing a picture of the
+// page dimmed and blurred behind it, as the overlay over the page looks.
+async function openOverPicture(tab) {
+  const image = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality: 70 }).catch(() => null);
+  if (image) await chrome.storage.session.set({ overlayPicture: { tabId: tab.id, image } }).catch(() => {});
+  const query = new URLSearchParams({ mode: 'tab', closes: '1', back: tab.id, picture: '1' });
+  await chrome.tabs.create({ windowId: tab.windowId, index: tab.index + 1, active: true, url: chrome.runtime.getURL(`${overlayPath}?${query}`) });
+}
+
 export async function toggleOverlay(tab) {
   overlayCommandAt = Date.now();
   // A New Tab page being turned into the overlay gets it that way; no
@@ -326,14 +350,25 @@ export async function toggleOverlay(tab) {
   try {
     const query = new URLSearchParams({ mode: 'frame', tab: tab.id, window: tab.windowId }).toString();
     const key = overlayCommandAt;
-    const [{ result } = {}] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: toggleInPage, args: [overlayPath, query], injectImmediately: true });
+    // A page busy with its own work, a video stuttering say, runs the code
+    // that draws the overlay only once it gets to it; past a moment the
+    // overlay opens as a tab over a picture of the page instead. In full
+    // screen it waits, as a tab would end the full screen.
+    const window = await chrome.windows.get(tab.windowId).catch(() => null);
+    const deadline = window?.state === 'fullscreen' ? 0 : Date.now() + PAGE_ANSWER_MS;
+    const injection = chrome.scripting.executeScript({ target: { tabId: tab.id }, func: toggleInPage, args: [overlayPath, query, false, deadline], injectImmediately: true });
+    const answer = await (deadline
+      ? Promise.race([injection, new Promise((resolve) => setTimeout(resolve, PAGE_ANSWER_MS, 'late'))])
+      : injection);
+    const [{ result } = {}] = answer === 'late' ? [{ result: 'late' }] : answer;
+    if (result === 'late') {
+      injection.catch(() => {});
+      noteTiming({ at: new Date(key).toISOString(), site: hostnameOf(tab.url), workerAge: key - workerStarted, late: true });
+      await openOverPicture(tab);
+      return;
+    }
     if (result?.opened) {
-      let site = '';
-      try {
-        site = new URL(tab.url).hostname;
-      } catch {
-        // No address to name.
-      }
+      const site = hostnameOf(tab.url);
       opening.set(tab.id, { at: new Date(key).toISOString(), site, loading: tab.status === 'loading', readyState: result.readyState, workerAge: key - workerStarted, pageRan: result.opened - key, injected: Date.now() - key, key });
       setTimeout(() => opening.delete(tab.id), 10_000);
     }
