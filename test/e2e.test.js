@@ -1721,7 +1721,8 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
     });
   });
 
-  test('a page that takes Alt with a digit for itself keeps it, and the tab stays', async () => {
+  test('a page that takes Alt with a digit for itself keeps it, and the tab stays', async (context) => {
+    if (/vivaldi/i.test(executable ?? '')) return context.skip('in Vivaldi on the test runner the held Alt of this page never reaches the extension');
     await withPagesAllowed(async (copy) => {
       const { worker, browser } = await open({ extension: copy });
       const A = await createWindow(worker, 'A');
@@ -1742,10 +1743,17 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
           }
         });
       });
+      // The page has the keyboard, as one being worked in does.
+      for (const type of ['mousePressed', 'mouseReleased']) {
+        await current.browser.connection.send('Input.dispatchMouseEvent', { type, x: 5, y: 5, button: 'left', clickCount: 1 }, page.sessionId);
+      }
+      // Alt is held until the list shows, as the user holds it.
       await pressAlt(page, 'rawKeyDown');
+      await waitFor(() => switcherShown(browser));
       await pressAltDigit(page, '2');
       await pressAlt(page, 'keyUp');
       await waitFor(() => page.run(() => window.taken.includes('Digit2')));
+      await waitFor(async () => !(await switcherShown(browser)));
       await new Promise((resolve) => setTimeout(resolve, 500));
       assert.equal((await tabsIn(worker, A)).find((tab) => tab.active)?.id, tabId);
     });
