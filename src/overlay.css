@@ -57,6 +57,7 @@ body.tab #box {
 #box {
   background: var(--surface);
   overflow: hidden;
+  transition: box-shadow 180ms, border-color 180ms;
 }
 
 #bar {

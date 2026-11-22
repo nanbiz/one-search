@@ -1229,6 +1229,7 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
     const frame = await overlayFrame(browser);
     await waitFor(() => page.run(() => document.getElementById('synced-pins-overlay').dataset.ready === '1'));
     await waitFor(() => frame.run(() => document.getElementById('query').value.startsWith('gh')));
+    await waitFor(() => frame.run(() => document.getAnimations().length === 0));
     const box = await frame.run(() => {
       const rect = document.getElementById('box').getBoundingClientRect();
       return { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width) };
@@ -1636,6 +1637,9 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
         const input = document.getElementById('query');
         return input.value === '127.0.0.1' && input.selectionStart === 3 && !document.getElementById('hint').hidden;
       }));
+      // The hint names the page that opens, the site's front page, never
+      // another page of the site visited more.
+      assert.equal(await frame.run(() => document.querySelector('#hint span').textContent), '127.0.0.1');
       await frame.press('Backspace');
       assert.deepEqual(await frame.run(() => [document.getElementById('query').value, document.getElementById('hint').hidden]), ['127', true]);
       await frame.press('Escape', { wait: false });
@@ -1732,7 +1736,7 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
 
   const activeIn = async (worker, windowId) => (await tabsIn(worker, windowId)).find((tab) => tab.active)?.id;
 
-  overlayTest('a tap on Alt turns typing off, and a tab\'s key alone picks it; Escape turns typing back on with the text kept', async () => {
+  overlayTest('a tap on Alt turns typing off, and a tab\'s key alone picks it; Alt again turns typing back on with the text kept, and Escape closes', async () => {
     const { worker, browser } = await open();
     const A = await createWindow(worker, 'A');
     const names = ['b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l'];
@@ -1751,9 +1755,9 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
     assert.equal(await frame.run(() => getComputedStyle(document.getElementById('bar')).display), 'none');
     const rows = await overlayResults(frame);
     assert.deepEqual(rows.map((row) => row.key), ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c']);
-    // A letter types nothing; Escape brings the text back.
+    // A letter types nothing; Alt again brings the text back.
     await pressKey(frame, 'z');
-    await frame.press('Escape');
+    await tapAlt(frame);
     await waitFor(() => frame.run(() => !document.getElementById('box').classList.contains('numbers')));
     assert.equal(await frame.run(() => document.getElementById('query').value), 'kept');
     assert.equal(await overlayOpen(browser), true);
@@ -1762,6 +1766,13 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
     await waitFor(() => frame.run(() => document.getElementById('box').classList.contains('numbers')));
     await pressKey(frame, 'b');
     await waitFor(async () => (await activeIn(worker, A)) === order[10].id);
+    await waitFor(async () => !(await overlayOpen(browser)));
+    // In number mode one Escape closes the overlay.
+    const again = await pressOverlayShortcut(browser, 'k');
+    await waitFor(() => again.run(() => document.activeElement?.id === 'query'));
+    await tapAlt(again);
+    await waitFor(() => again.run(() => document.getElementById('box').classList.contains('numbers')));
+    await again.press('Escape', { wait: false });
     await waitFor(async () => !(await overlayOpen(browser)));
   });
 
@@ -1789,7 +1800,6 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
     await waitFor(() => frame.run(() => document.activeElement?.id === 'query'));
     await tapAlt(frame);
     await waitFor(() => frame.run(() => document.getElementById('box').dataset.columns === '1' && document.getElementById('box').classList.contains('numbers')));
-    await frame.press('Escape');
     await frame.press('Escape', { wait: false });
     await waitFor(async () => !(await overlayOpen(browser)));
     for (let n = 4; n < 39; n++) await openTab(worker, A, `t${n}`, { active: false });

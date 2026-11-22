@@ -124,6 +124,15 @@ function hostOf(url) {
   }
 }
 
+function isFrontPage(url) {
+  try {
+    const { pathname } = new URL(url);
+    return pathname === '/' || pathname === '';
+  } catch {
+    return false;
+  }
+}
+
 function withoutFragment(url) {
   return url.split('#')[0];
 }
@@ -138,17 +147,20 @@ function recalled(text) {
   const startsSite = (host) => host.startsWith(word) || host.includes(`.${word}`);
   for (const entry of remembered.history) {
     if (!startsSite(entry.host)) continue;
-    const site = visits.get(entry.host);
+    let site = visits.get(entry.host);
     if (site) site.count += entry.weight;
-    // History is sorted by weight, so a site's first page is its most visited.
-    else visits.set(entry.host, { host: entry.host, url: entry.url, page: entry.title, count: entry.weight });
+    else visits.set(entry.host, site = { host: entry.host, url: entry.url, page: '', count: entry.weight });
+    // The site opens on its front page, so that page's title is the one shown
+    // for it, never that of another page of the site, such as Google Maps for
+    // google.com.
+    if (!site.page && isFrontPage(entry.url)) site.page = entry.title;
   }
   const sites = [...visits.values()]
     .sort((a, b) => (b.host.startsWith(word) - a.host.startsWith(word)) || b.count - a.count)
     .slice(0, MAX_SITES)
     .map((site) => {
       const url = `${new URL(site.url).origin}/`;
-      return { title: site.host, url, favIconUrl: null, kind: 'Site', page: site.page, pageUrl: site.url, pick: () => openAddress(url) };
+      return { title: site.host, url, favIconUrl: null, kind: 'Site', page: site.page, pick: () => openAddress(url) };
     });
   // A page shows once, whatever its fragment, and pages of one site with the
   // same title, such as a page reached with different parameters, once too.
@@ -510,8 +522,8 @@ const hint = document.getElementById('hint');
 const measure = document.createElement('canvas').getContext('2d');
 
 // Fills in the rest of the top row's site after what was typed, selected so
-// the next key replaces it, with the site's icon and its most visited page's
-// title behind it.
+// the next key replaces it, with the icon and title of the page that opens,
+// the site's front page, behind it.
 function complete() {
   const top = items[0];
   if (!completing || selected !== 0 || !top || top.kind !== 'Site' || !typed || /\s/.test(typed)
@@ -525,7 +537,7 @@ function complete() {
   const style = getComputedStyle(query);
   measure.font = `${style.fontSize} ${style.fontFamily}`;
   hint.style.left = `${query.offsetLeft + measure.measureText(query.value).width + 14}px`;
-  hint.replaceChildren(iconImage(top.pageUrl, null), Object.assign(document.createElement('span'), { textContent: top.page || top.title }));
+  hint.replaceChildren(iconImage(top.url, null), Object.assign(document.createElement('span'), { textContent: top.page || top.title }));
   hint.hidden = false;
 }
 
@@ -575,13 +587,40 @@ query.addEventListener('keydown', (event) => {
 });
 
 // Number mode: Alt tapped on its own turns typing off and the tabs' keys on,
-// so a key alone picks its tab; Alt again or Escape turns typing back on,
-// with what was typed kept.
+// so a key alone picks its tab; Alt again turns typing back on, with what was
+// typed kept, and Escape closes the overlay as it always does.
 const box = document.getElementById('box');
 let numberMode = false;
 // The first half of a two key label, 0, waiting for the second.
 let pendingKey = '';
 let altAlone = false;
+
+// The box changes size in a short glide, from where it was to where the
+// change puts it, its content fading in, rather than in one frame.
+const GLIDE = { duration: 180, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' };
+
+// The box's own width and height, inside its border, which is what an
+// animation of them sets.
+function innerSize() {
+  const style = getComputedStyle(box);
+  const across = parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth);
+  const down = parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+  const { width, height } = box.getBoundingClientRect();
+  return { width: width - across, height: height - down };
+}
+
+function glide(change) {
+  const from = innerSize();
+  change();
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const to = innerSize();
+  if (Math.abs(from.width - to.width) < 1 && Math.abs(from.height - to.height) < 1) return;
+  box.animate([
+    { width: `${from.width}px`, height: `${from.height}px` },
+    { width: `${to.width}px`, height: `${to.height}px` },
+  ], GLIDE);
+  resultsList.animate([{ opacity: 0 }, { opacity: 1 }], GLIDE);
+}
 
 function setNumberMode(on) {
   numberMode = on;
@@ -589,7 +628,7 @@ function setNumberMode(on) {
   keyboardOnPins = false;
   selected = 0;
   if (on) uncomplete();
-  render();
+  glide(render);
   if (!on) complete();
 }
 
@@ -638,8 +677,7 @@ document.addEventListener('keydown', (event) => {
   }
   if (key === 'Escape') {
     event.preventDefault();
-    if (numberMode) setNumberMode(false);
-    else dismiss();
+    dismiss();
   } else if (numberMode && key.length === 1 && !event.ctrlKey && !event.metaKey) {
     // Typing is off in number mode.
     event.preventDefault();
@@ -817,7 +855,8 @@ async function start() {
     typed = kept.text;
     query.select();
   }
-  render();
+  // The box opens out from the bar the page drew while this frame loaded.
+  glide(render);
   query.focus();
   // History is read and indexed once the overlay shows, since thousands of
   // pages hold up its first picture by tens of milliseconds; text typed
