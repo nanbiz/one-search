@@ -1,5 +1,6 @@
 // Holding Alt over a page shows the window's tabs numbered in strip order, as
-// Alt with a digit selects them: 1 to 8 the tab at that place, 9 the last.
+// Alt with a digit selects them: 1 to 8 the tab at that place, 9 the last,
+// unless the page takes that key for itself.
 // A digit selects its tab and letting go of Alt closes the list. Runs in every
 // frame of a page, since the keys go to the frame that has the focus; the list
 // is drawn in the top one.
@@ -57,10 +58,15 @@
     if (!event.altKey) return;
     const digit = /^Digit([1-9])$/.exec(event.code);
     if (digit && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
       hide();
-      chrome.runtime.sendMessage({ type: 'switchTab', number: Number(digit[1]) }).catch(() => {});
+      // A page with its own Alt and digit shortcuts, such as switching chats,
+      // keeps them: its handler cancels the key's default action, and the tab
+      // only changes for a key the page left alone, read once the page's
+      // listeners have all run.
+      setTimeout(() => {
+        if (event.defaultPrevented) return;
+        chrome.runtime.sendMessage({ type: 'switchTab', number: Number(digit[1]) }).catch(() => {});
+      });
       return;
     }
     // Alt on its way to another shortcut.
