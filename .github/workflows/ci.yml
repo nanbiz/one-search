@@ -103,12 +103,24 @@ jobs:
           mv "$RUNNER_TEMP/manifest.json" manifest.json
           node scripts/package.js
           echo "VERSION=$version" >> "$GITHUB_ENV"
+      # The release and its tag stay; each build replaces the zips and names
+      # its commit, so no tag is created or moved.
       - run: |
-          gh release delete test-build --yes --cleanup-tag || true
           # The same zip also under a fixed name, so one download link always
           # gives the newest test build.
-          cp dist/synced-pins-*.zip dist/synced-pins-test.zip
-          gh release create test-build dist/*.zip --prerelease --target "$GITHUB_SHA" --title "Test build $VERSION" --notes "Built from $GITHUB_SHA."
+          cp "dist/synced-pins-$VERSION.zip" dist/synced-pins-test.zip
+          if ! gh release view test-build >/dev/null 2>&1; then
+            gh release create test-build dist/*.zip --prerelease --target "$GITHUB_SHA" --title "Test build $VERSION" --notes "Built from $GITHUB_SHA."
+            exit 0
+          fi
+          gh release upload test-build dist/*.zip --clobber
+          for asset in $(gh release view test-build --json assets --jq '.assets[].name'); do
+            case "$asset" in
+              synced-pins-test.zip|"synced-pins-$VERSION.zip") ;;
+              *) gh release delete-asset test-build "$asset" --yes ;;
+            esac
+          done
+          gh release edit test-build --prerelease --title "Test build $VERSION" --notes "Built from $GITHUB_SHA."
         env:
           GH_TOKEN: ${{ github.token }}
 
