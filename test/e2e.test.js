@@ -1677,10 +1677,11 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
     await waitFor(() => overlay.run(() => document.activeElement?.id === 'query'));
     assert.equal(await overlay.run(() => document.getElementById('files').hidden), true);
     await overlay.press('Escape', { wait: false });
+    let tabs;
     await waitFor(async () => {
-      const tabs = await tabsIn(worker, B);
+      tabs = await tabsIn(worker, B);
       return tabs.length === 1 && tabs[0].id === id && tabs[0].active;
-    });
+    }).catch((error) => assert.fail(`${error.message}\nversion tab ${id}, window B: ${JSON.stringify(tabs)}`));
   });
 
   overlayTest('a local file takes the browser\'s file access: without it the overlay offers the switch, with it the file opens and the overlay draws over it', async () => {
