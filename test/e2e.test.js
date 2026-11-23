@@ -635,6 +635,84 @@ describe('synced pins', { skip, concurrency: 1 }, () => {
     assert.deepEqual({ after, stored }, { after: before, stored: 2 });
   });
 
+  test('two pins whose pages come to the same address keep still, also across a restart', async () => {
+    const { worker } = await open({ restoreSession: true });
+    const { a, b } = await threeWindowsWithPins(worker);
+    // b lives in the second window, so the two pages are in different windows.
+    await select(worker, (await layout(worker)).flatMap((window) => window.tabs).find((tab) => tab.placeholder === 'b').id);
+    await waitFor(async () => (await allPinnedAreas(worker)).includes('["~a","b"]'));
+    // An app moving two of its pinned tabs to the same page, as Paseo does.
+    await worker.run((tabId, url) => chrome.tabs.update(tabId, { url }), b, pageUrl('a'));
+    await waitForTitle(worker, b, 'a');
+    const quiet = async (target) => {
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      const before = await target.run(async () => (await chrome.storage.local.get('trace')).trace?.length ?? 0);
+      const areas = await allPinnedAreas(target);
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      const after = await target.run(async () => (await chrome.storage.local.get('trace')).trace?.length ?? 0);
+      const tail = await target.run(async () => JSON.stringify((await chrome.storage.local.get('trace')).trace?.slice(-2)));
+      assert.deepEqual({ passes: after - before, areas: await allPinnedAreas(target) }, { passes: 0, areas }, tail);
+      return areas;
+    };
+    console.log('PROBE before', JSON.stringify(await quiet(worker)));
+    const { worker: restarted } = await restart();
+    console.log('PROBE after', JSON.stringify(await quiet(restarted)));
+  });
+
+  test('the pins of a profile where pins share addresses settle after a start', async () => {
+    const { worker } = await open();
+    const url = { W: pageUrl('watch'), M: pageUrl('music'), U: pageUrl('usage'), K8: pageUrl('ws8'), K3: pageUrl('ws3'), G: pageUrl('gh'), GN: pageUrl('ghn') };
+    const pins = [['bf66f3e3', 'W', 'M'], ['7c9cbb9b', 'K8', 'K3'], ['35f2c92d', 'W', 'W'], ['e75b71b8', 'U', 'U'],
+      ['5ee0c653', 'U', 'U'], ['d543c5c8', 'G', 'G'], ['f8a66dd5', 'G', 'GN'], ['733ec828', 'U', 'U']]
+      .map(([id, at, home]) => ({ id, url: url[at], title: at, home: { url: url[home], title: home } }));
+    const P = (id, at) => ({ id, url: url[at] });
+    const L = (at) => ({ url: url[at] });
+    const windows = [
+      [P('bf66f3e3', 'W'), P('7c9cbb9b', 'K8'), L('W'), L('U'), P('35f2c92d', 'W'), P('e75b71b8', 'U'), P('5ee0c653', 'U'),
+        P('d543c5c8', 'G'), L('G'), P('f8a66dd5', 'G'), P('733ec828', 'U'), P('5ee0c653', 'U'), P('733ec828', 'U'), P('7c9cbb9b', 'U')],
+      [P('bf66f3e3', 'W'), P('7c9cbb9b', 'U'), L('W'), L('K8'), P('35f2c92d', 'W'), P('e75b71b8', 'U'), P('5ee0c653', 'U'),
+        P('d543c5c8', 'G'), L('G'), P('f8a66dd5', 'G'), L('U'), P('5ee0c653', 'U'), P('733ec828', 'U'), P('7c9cbb9b', 'U')],
+    ];
+    // The extension waits until the profile is in place, then starts from it
+    // as after a browser start.
+    await worker.run(async (pins, windows) => {
+      const get = chrome.storage.session.get.bind(chrome.storage.session);
+      let release;
+      globalThis.hold = new Promise((resolve) => { release = resolve; });
+      globalThis.release = () => { chrome.storage.session.get = get; release(); };
+      chrome.storage.session.get = async (...args) => { await globalThis.hold; return get(...args); };
+      const page = chrome.runtime.getURL('src/placeholder.html');
+      for (const tabs of windows) {
+        const window = await chrome.windows.create({ url: 'about:blank' });
+        for (const tab of tabs) {
+          const at = tab.id ? `${page}?${new URLSearchParams({ pin: tab.id, url: tab.url, title: 'x' })}` : tab.url;
+          await chrome.tabs.create({ windowId: window.id, url: at, pinned: true, active: false });
+        }
+      }
+      for (const window of (await chrome.windows.getAll({ populate: true })).filter((w) => w.tabs.every((t) => !t.pinned))) {
+        await chrome.windows.remove(window.id);
+      }
+      await chrome.storage.session.clear();
+      await chrome.storage.local.set({ pins, trace: [] });
+    }, pins, windows);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    await worker.run(() => globalThis.release());
+    await new Promise((resolve) => setTimeout(resolve, 4000));
+    const read = () => worker.run(async () => ({
+      trace: (await chrome.storage.local.get('trace')).trace ?? [],
+      pinned: (await chrome.windows.getAll({ populate: true })).map((w) => w.tabs.filter((t) => t.pinned).length),
+      pins: ((await chrome.storage.local.get('pins')).pins ?? []).length,
+    }));
+    const first = await read();
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    const second = await read();
+    // Pins sharing an address merge into one, so the three addresses the
+    // live pages show and the workspace leave four pins, each id once.
+    const ids = second.trace[0].decisions[0].pins.map((pin) => pin.id);
+    assert.deepEqual({ passes: second.trace.length - first.trace.length, pinned: second.pinned, pins: second.pins, ids: new Set(ids).size },
+      { passes: 0, pinned: [4, 4], pins: 4, ids: 4 }, JSON.stringify(second.trace.slice(0, 2)));
+  });
+
   test('a restart without session restore keeps each pin once', async () => {
     const { worker } = await open();
     await threeWindowsWithPins(worker);

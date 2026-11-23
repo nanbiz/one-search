@@ -885,6 +885,7 @@ export function createPinSync(chrome) {
     const lastFocused = await chrome.windows.getLastFocused({ windowTypes: ['normal'] }).catch(() => null);
     const windows = [...layout.windows].sort((a, b) => (b.id === lastFocused?.id) - (a.id === lastFocused?.id));
     const pins = [];
+    const byId = new Map();
     const byUrl = new Map();
     // Pins found through their live tab take the id their placeholders carry,
     // so those placeholders stay in place.
@@ -897,15 +898,24 @@ export function createPinSync(chrome) {
       for (const tab of window.tabs.filter((candidate) => candidate.pinned)) {
         const described = placeholderOf(tab);
         const key = urlWithoutFragment(described?.url ?? (tab.pendingUrl || tab.url));
-        let pin = byUrl.get(key);
+        // Placeholders of one pin can show different addresses; each belongs
+        // to the pin of the id it carries, which is found at all of them and
+        // at the address stored for it, where its live tab is unless it moved
+        // on since.
+        const entry = described && stored.find((candidate) => candidate.id === described.id);
+        const storedAt = entry && urlWithoutFragment(entry.url);
+        let pin = (described && byId.get(described.id)) ?? byUrl.get(key)
+          ?? (withNewId.has(byUrl.get(storedAt)) ? byUrl.get(storedAt) : undefined);
         if (described) {
           if (!pin) {
             pin = { ...described, tabId: null, windowId: null };
-            byUrl.set(key, pin);
             pins.push(pin);
+            if (storedAt && !byUrl.has(storedAt)) byUrl.set(storedAt, pin);
           } else if (withNewId.delete(pin)) {
             pin.id = described.id;
           }
+          if (!byId.has(pin.id)) byId.set(pin.id, pin);
+          if (!byUrl.has(key)) byUrl.set(key, pin);
           placeholders.push({ pin, tab });
         } else if (!pin) {
           pin = { id: newPinId(), tabId: tab.id, ...liveTabDetails(tab) };
