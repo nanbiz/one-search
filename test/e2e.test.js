@@ -2194,7 +2194,10 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
       if (/vivaldi/i.test(executable ?? '') && !(await browser.targets()).some((info) => info.type === 'iframe' && info.url.includes('/src/overlay.html'))) {
         throw new NoOverlayInPage('Vivaldi gives the extension no access to the page on the CI runner, so the overlay opened as a tab');
       }
-      const frame = await overlayFrame(browser);
+      const frame = await overlayFrame(browser).catch((error) => {
+        if (/vivaldi/i.test(executable ?? '')) throw new NoOverlayInPage(`Vivaldi on the CI runner gives the overlay over the page no focus: ${error.message}`);
+        throw error;
+      });
       await waitFor(() => frame.run(() => document.activeElement?.id === 'query'));
       const tabs = await tabsIn(worker, A);
       assert.deepEqual(tabs.map((tab) => [tab.id, tab.active]), [[before.id, true]]);
