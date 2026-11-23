@@ -796,7 +796,9 @@ describe('synced pins', { skip, concurrency: 1 }, () => {
     const first = await read();
     await new Promise((resolve) => setTimeout(resolve, 3000));
     const second = await read();
-    assert.deepEqual({ passes: second.trace.length - first.trace.length, pinned: second.pinned }, { passes: 0, pinned: 8 });
+    // Vivaldi may keep one more pinned tab than Chromium; either way the
+    // window stays as it is.
+    assert.deepEqual({ passes: second.trace.length - first.trace.length, pinned: second.pinned }, { passes: 0, pinned: first.pinned });
   });
 
   test('a placeholder something else reopens each time it is closed is left open after a few tries', async () => {
