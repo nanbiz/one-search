@@ -81,14 +81,15 @@ jobs:
       - run: sh scripts/test-e2e.sh
         timeout-minutes: 15
 
-  # Every push to main replaces the test-build pre-release right away, beside
-  # the tests, so a change can be tried at once, before any version goes to
-  # the store; a release still waits for every browser to pass. Its version
-  # adds the run number as a fourth part, which also names the worker script
-  # anew, so loading it unpacked over an earlier test build runs the new code.
+  # Every push to main that passes the tests in every browser replaces the
+  # test-build pre-release, so a change can be tried before any version goes
+  # to the store. Its version adds the run number as a fourth part, which also
+  # names the worker script anew, so loading it unpacked over an earlier test
+  # build runs the new code.
   test-build:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
+    needs: e2e
+    if: github.event_name == 'push' && needs.e2e.result == 'success'
     permissions:
       contents: write
     steps:
