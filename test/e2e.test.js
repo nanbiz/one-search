@@ -1480,8 +1480,11 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
     const plainOverlayTab = () => worker.run(async (windowId) => (await chrome.tabs.query({ windowId }))
       .some((tab) => (tab.pendingUrl || tab.url).includes('/src/overlay.html?mode=tab') && !(tab.pendingUrl || tab.url).includes('picture=1')), A);
     const vivaldi = /vivaldi/i.test(executable ?? '');
-    await waitFor(async () => (await overlayTab()) || (vivaldi && await plainOverlayTab()));
-    if (!(await overlayTab())) throw new NoOverlayInPage('Vivaldi gives the extension no access to the page on the CI runner, so the overlay opens as a plain tab');
+    const opened = await waitFor(async () => (await overlayTab()) || (vivaldi && await plainOverlayTab())).then(() => true, (error) => {
+      if (vivaldi) return false;
+      throw error;
+    });
+    if (!opened || !(await overlayTab())) throw new NoOverlayInPage('Vivaldi gives the extension no access to the page on the CI runner, so the overlay opens as a plain tab or not over the page');
     const overlay = await browser.page((url) => url.includes('/src/overlay.html?mode=tab'));
     await waitFor(() => overlay.run(() => document.body?.classList.contains('picture') === true));
     // The page's own code, run once the page is free, opens nothing more.
