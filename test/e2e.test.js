@@ -1537,6 +1537,34 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
     await waitFor(() => worker.run(async (id) => (await chrome.tabs.get(id)).pinned, tab.id));
   });
 
+  overlayTest('a browser page named in the overlay shows its address and opens', async () => {
+    const { worker, browser } = await open();
+    const A = await createWindow(worker, 'A');
+    const frame = await pressOverlayShortcut(browser, 'A');
+    await typeInto(frame, 'downloads');
+    await waitFor(async () => (await overlayResults(frame))[0]?.title === 'Downloads');
+    const first = await frame.run(() => {
+      const row = document.querySelector('#results .row');
+      return { kind: row.querySelector('.kind').textContent, site: row.querySelector('.site').textContent };
+    });
+    assert.ok(['Browser', 'Brave', 'Edge'].includes(first.kind), first.kind);
+    assert.match(first.site, /^[a-z]+:\/\/downloads$/);
+    // Every page of the list is one the browser has.
+    const pages = await frame.run(async () => (await import('./quick-actions.js')).browserPages());
+    await frame.press('Enter', { wait: false });
+    await waitFor(async () => (await tabsIn(worker, A)).some((tab) => /^[a-z]+:\/\/downloads\/?$/.test(tab.url)));
+    const opened = await worker.run(async (addresses, windowId) => {
+      const tabs = await Promise.all(addresses.map((url) => chrome.tabs.create({ windowId, url, active: false })));
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      return Promise.all(tabs.map(async ({ id }) => {
+        const tab = await chrome.tabs.get(id);
+        return { url: tab.url || tab.pendingUrl, title: tab.title };
+      }));
+    }, pages.map((page) => page.address), A);
+    const missing = opened.filter(({ url, title }) => !url || /not available|can.t be reached|ERR_/i.test(title ?? ''));
+    assert.deepEqual(missing, [], JSON.stringify(opened));
+  });
+
   overlayTest('closing other tabs leaves pins and tab groups, and the button\'s second click gives up the selected tab for a pick in the overlay', async (context) => {
     const { worker, browser } = await open();
     const { windows: [A], a } = await threeWindowsWithPins(worker);

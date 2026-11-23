@@ -1,5 +1,5 @@
 import { containsWords, matchScore } from './match.js';
-import { quickActions } from './quick-actions.js';
+import { browserPages, quickActions } from './quick-actions.js';
 import { isCtrlT, overlayShortcut } from './shortcut.js';
 
 // The overlay opened instead of a new tab: type an address, a search or the
@@ -41,13 +41,6 @@ function isPlaceholder(tab) {
 
 function isOverlay(tab) {
   return (tab.pendingUrl || tab.url || '').startsWith(overlayPage);
-}
-
-// An action's icon, drawn in the muted grey of the extension's glyphs from
-// the path its definition carries.
-function glyphUrl(path) {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#8b8b93" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${path}"/></svg>`;
-  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 
 // An address as the row shows it beside the title: host and path, without
@@ -382,20 +375,18 @@ function tabItems(text) {
 }
 
 function actionItems(text) {
-  return quickActions
+  const actions = quickActions
     .filter((action) => action.available(target))
-    .map((action) => ({ action, score: matchScore(text, action.label) }))
+    .map((action) => ({ title: action.label, icon: action.icon, kind: 'Action', pick: () => action.run(target) }));
+  const pages = browserPages()
+    .map((page) => ({ title: page.label, icon: page.icon, site: page.address, kind: page.kind, pick: () => openAddress(page.address) }));
+  return [...actions, ...pages]
+    .map((item) => ({ item, score: matchScore(text, item.title) }))
     .filter(({ score }) => score !== null
       && (score >= ACTION_STRONG_SCORE || (text.trim().length >= ACTION_MIN_QUERY && score > ACTION_MIN_SCORE)))
     .sort((a, b) => b.score - a.score)
     .slice(0, MAX_ACTIONS)
-    .map(({ action, score }) => ({
-      title: action.label,
-      icon: glyphUrl(action.glyph),
-      glyph: true,
-      kind: 'Action',
-      pick: () => action.run(target),
-    }));
+    .map(({ item }) => ({ ...item, glyph: true }));
 }
 
 function results(text) {
