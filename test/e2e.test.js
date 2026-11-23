@@ -618,6 +618,23 @@ describe('synced pins', { skip, concurrency: 1 }, () => {
     }).catch(() => assert.deepEqual(after, before));
   });
 
+  test('a pin whose page moved on to another address stays one pin across a restart', async () => {
+    const { worker } = await open({ restoreSession: true });
+    const { a } = await threeWindowsWithPins(worker);
+    // The live tab goes on to another page of the site, as an app moving to
+    // another workspace does; the other windows' placeholders still carry the
+    // pin's first address.
+    await worker.run((tabId, url) => chrome.tabs.update(tabId, { url }), a, pageUrl('a-elsewhere'));
+    await waitForTitle(worker, a, 'a-elsewhere');
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    const before = await allPinnedAreas(worker);
+    const { worker: restarted } = await restart();
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    const after = await allPinnedAreas(restarted);
+    const stored = await restarted.run(async () => (await chrome.storage.local.get('pins')).pins.length);
+    assert.deepEqual({ after, stored }, { after: before, stored: 2 });
+  });
+
   test('a restart without session restore keeps each pin once', async () => {
     const { worker } = await open();
     await threeWindowsWithPins(worker);
