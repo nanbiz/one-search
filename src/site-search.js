@@ -12,6 +12,8 @@ const MAX_LEARNED = 2000;
 const MAX_DESCRIPTION = 100_000;
 // Each site's description is read once a session.
 const tried = new Set();
+// Sites whose page is to read its description.
+const askedPages = new Set();
 // Learned sites are written one after another, so two learned at once both
 // stay.
 let writing = Promise.resolve();
@@ -79,31 +81,64 @@ export function searchAddressFrom(description, site) {
   return null;
 }
 
+// Whether the site of a page that declares a search still has to be learned.
+// A description on the page's own origin is read by the page, with the
+// session the page itself has, as a site behind a login answers others with
+// its login page; one elsewhere on the site is read here, without cookies.
+// Only the site's own description is read, so a page cannot have the
+// extension request an address of its choosing, one on the local network
+// say. Returns 'page' where the page is to read it.
 export async function learnSearch(pageUrl, href) {
   const site = hostOf(pageUrl);
-  if (!site || tried.has(site)) return;
-  tried.add(site);
-  // Only the site's own description is read, so a page cannot have the
-  // extension request an address of its choosing, one on the local network
-  // say.
+  if (!site || tried.has(site)) return null;
   let description;
   try {
     description = new URL(href);
   } catch {
-    return;
+    return null;
   }
-  if (!/^https?:$/.test(description.protocol) || !sameSite(hostOf(description.href), site)) return;
+  if (!/^https?:$/.test(description.protocol) || !sameSite(hostOf(description.href), site)) return null;
   shipped ??= await fetch(chrome.runtime.getURL('src/site-search.json')).then((response) => response.json()).catch(() => ({}));
-  if (shipped[site]) return;
+  if (shipped[site]) return null;
   const { learnedSearch = {} } = await chrome.storage.local.get('learnedSearch');
-  if (site in learnedSearch) return;
+  if (site in learnedSearch) return null;
+  tried.add(site);
+  if (description.origin === new URL(pageUrl).origin) {
+    askedPages.add(site);
+    return 'page';
+  }
   const text = await fetch(description, { credentials: 'omit' })
     .then((response) => (response.ok ? response.text() : ''), () => '');
-  const address = text.length <= MAX_DESCRIPTION ? searchAddressFrom(text, site) : null;
+  await learnFrom(site, text);
+  return null;
+}
+
+// Keeps the search a site's description gives, or its absence.
+async function learnFrom(site, text) {
+  const address = typeof text === 'string' && text.length <= MAX_DESCRIPTION ? searchAddressFrom(text, site) : null;
   writing = writing.then(async () => {
     const { learnedSearch: now = {} } = await chrome.storage.local.get('learnedSearch');
     const sites = Object.entries({ ...now, [site]: address ?? '' }).slice(-MAX_LEARNED);
     await chrome.storage.local.set({ learnedSearch: Object.fromEntries(sites) });
+  }).catch(() => {});
+  await writing;
+}
+
+// The description a page read for its site, taken only where it was asked
+// for.
+export async function learnFromPage(pageUrl, text) {
+  const site = hostOf(pageUrl);
+  if (!askedPages.delete(site)) return;
+  await learnFrom(site, text);
+}
+
+// Sites kept without a search are read again once after an update, which may
+// read them in a way that finds it.
+export async function retryUnfound() {
+  writing = writing.then(async () => {
+    const { learnedSearch = {} } = await chrome.storage.local.get('learnedSearch');
+    const found = Object.entries(learnedSearch).filter(([, address]) => address);
+    await chrome.storage.local.set({ learnedSearch: Object.fromEntries(found) });
   }).catch(() => {});
   await writing;
 }

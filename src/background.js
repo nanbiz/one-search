@@ -1,7 +1,7 @@
 import { createPinSync } from './pins.js';
 import { isCtrlT, overlayShortcut } from './shortcut.js';
 import { closeTabs, overlayReady, replaceNewTab, showClosableCount, toggleOverlay } from './tools.js';
-import { keepLearningSearch, learnSearch } from './site-search.js';
+import { keepLearningSearch, learnFromPage, learnSearch, retryUnfound } from './site-search.js';
 
 const sync = createPinSync(chrome);
 
@@ -68,6 +68,7 @@ async function openSetup(windowId) {
 
 chrome.runtime.onInstalled.addListener(async ({ reason }) => {
   sync.note({ type: 'installed', reason });
+  if (reason === 'update') retryUnfound().catch(() => {});
   if (reason !== 'install') return;
   const { setupPending } = await chrome.storage.local.get('setupPending');
   if (setupPending === undefined) await chrome.storage.local.set({ setupPending: true });
@@ -89,7 +90,11 @@ chrome.permissions.onAdded.addListener(() => keepLearningSearch().catch(() => {}
 chrome.permissions.onRemoved.addListener(() => keepLearningSearch().catch(() => {}));
 keepLearningSearch().catch(() => {});
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
-  if (message?.type === 'openSearch' && sender.tab && sender.frameId === 0 && typeof message.href === 'string') learnSearch(sender.url, message.href).catch(() => {});
+  if (message?.type === 'openSearch' && sender.tab && sender.frameId === 0 && typeof message.href === 'string') {
+    learnSearch(sender.url, message.href).then(respond, () => respond(null));
+    return true;
+  }
+  if (message?.type === 'openSearchText' && sender.tab && sender.frameId === 0) learnFromPage(sender.url, message.text).catch(() => {});
   if (message === 'summon' && sender.tab) sync.note({ type: 'summon', tabId: sender.tab.id, windowId: sender.tab.windowId });
   if (message?.type === 'openSetup') openSetup(message.windowId);
   if (message?.type === 'overlayReady') overlayReady(message.tabId, message.frameStarted, message.ready, message.loaded);

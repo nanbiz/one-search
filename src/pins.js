@@ -39,12 +39,23 @@ const TRACE_HINTS = 25;
 // chrome.storage.session so a restarted service worker picks it up again.
 // Its pins, without their tabs, are also kept in chrome.storage.local, so a
 // browser start brings back every pin its session did not restore.
+// A tab closed this many times within this long that keeps coming back is
+// left open.
+const REOPENED_LIMIT = 3;
+const REOPENED_WITHIN_MS = 10_000;
+
 export function createPinSync(chrome) {
   const pageUrl = chrome.runtime.getURL('src/placeholder.html');
   const hints = [];
   // Tabs this extension removed itself, so the events these removals fire
   // are never read as the user closing them.
   const ownRemovals = new Set();
+  // Tells the trace entries of two copies of the worker apart.
+  const instance = newPinId();
+  // When the extension closed tabs, by window and address, and the ones it
+  // has stopped closing since they came back each time.
+  const removedRecently = new Map();
+  const keptReopened = new Set();
   // Windows whose tabs are being closed with the window; they are left alone.
   const closingWindows = new Set();
   // The pinned tabs the current pass has told apart as reopened or not, and
@@ -77,18 +88,25 @@ export function createPinSync(chrome) {
 
   async function writeTrace() {
     if (decisions.length === 0) return;
-    const entry = { hints: recentHints.splice(0), decisions };
+    const entry = { worker: instance, hints: recentHints.splice(0), decisions };
     decisions = [];
     const { trace = [] } = await chrome.storage.local.get('trace');
     trace.push(entry);
     await chrome.storage.local.set({ trace: trace.slice(-TRACE_LENGTH) });
   }
 
+  // Passes of every running copy of the worker take turns, so a second copy,
+  // should the browser ever run one beside the first, never arranges the
+  // tabs from a pin list the first is in the middle of changing.
+  function onePassAtATime(run) {
+    return globalThis.navigator?.locks ? navigator.locks.request('synced-pins-pass', run) : run();
+  }
+
   async function drain() {
     while (hints.length > 0) {
       const batch = hints.splice(0);
       try {
-        await pass(batch);
+        await onePassAtATime(() => pass(batch));
       } catch (error) {
         console.error('Synced Pins could not update the pinned tabs', error);
         decide({ failed: String(error?.message ?? error) });
@@ -766,14 +784,32 @@ export function createPinSync(chrome) {
     }
   }
 
+  // A tab something else opens again at once each time it is closed, as
+  // another extension that keeps pinned tabs may, is left open after a few
+  // tries, so the two do not take turns forever.
   async function removeTabs(tabIds) {
+    const now = Date.now();
     const leaving = new Map();
+    const removing = [];
     for (const tab of await Promise.all(tabIds.map((id) => chrome.tabs.get(id)))) {
+      const key = `${tab.windowId} ${tab.pendingUrl || tab.url}`;
+      const recent = (removedRecently.get(key) ?? []).filter((at) => now - at < REOPENED_WITHIN_MS);
+      if (recent.length >= REOPENED_LIMIT) {
+        if (!keptReopened.has(key)) decide({ keptReopened: tab.id, windowId: tab.windowId });
+        keptReopened.add(key);
+        continue;
+      }
+      removedRecently.set(key, [...recent, now]);
+      removing.push(tab.id);
       leaving.set(tab.windowId, (leaving.get(tab.windowId) ?? 0) + 1);
     }
+    for (const [key, times] of removedRecently) {
+      if (times.every((at) => now - at >= REOPENED_WITHIN_MS)) removedRecently.delete(key);
+    }
+    if (removing.length === 0) return;
     for (const [windowId, count] of leaving) await keepWindowOpen(windowId, count);
-    for (const id of tabIds) ownRemovals.add(id);
-    await edit(() => chrome.tabs.remove(tabIds));
+    for (const id of removing) ownRemovals.add(id);
+    await edit(() => chrome.tabs.remove(removing));
   }
 
   // Makes the window's pinned area hold, in list order, each pin's live tab

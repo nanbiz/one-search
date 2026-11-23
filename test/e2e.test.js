@@ -27,6 +27,22 @@ const server = createServer((request, response) => {
     response.end(ICON);
     return;
   }
+  // A site behind a login, as a GitHub Enterprise Server: the page sets the
+  // session and declares its search, whose description only the session
+  // gets, anyone else being answered with the login page.
+  if (name === 'gated') {
+    response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'set-cookie': 'session=1; Path=/' });
+    response.end('<!doctype html><title>gated</title><link rel="search" type="application/opensearchdescription+xml" href="/gated.xml"><h1>gated</h1>');
+    return;
+  }
+  if (name === 'gated.xml') {
+    const signedIn = /(^|;\s*)session=1/.test(request.headers.cookie ?? '');
+    response.writeHead(200, { 'content-type': signedIn ? 'application/opensearchdescription+xml' : 'text/html; charset=utf-8' });
+    response.end(signedIn
+      ? `<OpenSearchDescription xmlns="http://a9.com/-/spec/opensearch/1.1/"><ShortName>gated</ShortName><Url type="text/html" method="get" template="http://${request.headers.host}/find?q={searchTerms}&amp;ref=opensearch"/></OpenSearchDescription>`
+      : '<!doctype html><title>Sign in</title><form>login</form>');
+    return;
+  }
   const icon = name.startsWith('iconic') ? '<link rel="icon" href="/icon.png">' : '';
   response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   response.end(`<!doctype html><title>${name}</title>${icon}<h1>${name}</h1>`);
@@ -629,8 +645,11 @@ describe('synced pins', { skip, concurrency: 1 }, () => {
     await new Promise((resolve) => setTimeout(resolve, 1000));
     const before = await allPinnedAreas(worker);
     const { worker: restarted } = await restart();
-    await new Promise((resolve) => setTimeout(resolve, 3000));
-    const after = await allPinnedAreas(restarted);
+    let after;
+    await waitFor(async () => {
+      after = await allPinnedAreas(restarted);
+      return JSON.stringify(after) === JSON.stringify(before);
+    }).catch(() => {});
     const stored = await restarted.run(async () => (await chrome.storage.local.get('pins')).pins.length);
     assert.deepEqual({ after, stored }, { after: before, stored: 2 });
   });
@@ -654,9 +673,9 @@ describe('synced pins', { skip, concurrency: 1 }, () => {
       assert.deepEqual({ passes: after - before, areas: await allPinnedAreas(target) }, { passes: 0, areas }, tail);
       return areas;
     };
-    console.log('PROBE before', JSON.stringify(await quiet(worker)));
+    await quiet(worker);
     const { worker: restarted } = await restart();
-    console.log('PROBE after', JSON.stringify(await quiet(restarted)));
+    await quiet(restarted);
   });
 
   test('the pins of a profile where pins share addresses settle after a start', async () => {
@@ -764,9 +783,39 @@ describe('synced pins', { skip, concurrency: 1 }, () => {
     const first = await read();
     await new Promise((resolve) => setTimeout(resolve, 3000));
     const second = await read();
-    console.log('PROBE', JSON.stringify({ passes: [first.trace.length, second.trace.length], pinned: [first.pinned, second.pinned] }));
-    console.log('PROBE last', JSON.stringify(second.trace.slice(-1)).slice(0, 1500));
-    assert.equal(second.trace.length, first.trace.length);
+    assert.deepEqual({ passes: second.trace.length - first.trace.length, pinned: second.pinned }, { passes: 0, pinned: 8 });
+  });
+
+  test('a placeholder something else reopens each time it is closed is left open after a few tries', async () => {
+    const { worker } = await open();
+    const { windows: [, B] } = await threeWindowsWithPins(worker);
+    // Another extension that keeps pinned tabs, opening each one closed
+    // again where it was.
+    await worker.run(() => {
+      globalThis.reopened = 0;
+      const where = new Map();
+      const remember = (tab) => { if (tab.pinned) where.set(tab.id, { windowId: tab.windowId, index: tab.index, url: tab.pendingUrl || tab.url }); };
+      chrome.tabs.onCreated.addListener(remember);
+      chrome.tabs.onUpdated.addListener((id, change, tab) => remember(tab));
+      chrome.tabs.onMoved.addListener(async (id) => remember(await chrome.tabs.get(id)));
+      chrome.tabs.query({}).then((tabs) => tabs.forEach(remember));
+      chrome.tabs.onRemoved.addListener((id, { isWindowClosing }) => {
+        const tab = where.get(id);
+        if (!tab || isWindowClosing || !tab.url.includes('/src/placeholder.html')) return;
+        globalThis.reopened += 1;
+        chrome.tabs.create({ ...tab, pinned: true, active: false });
+      });
+    });
+    // A second placeholder of a in B, which the extension closes as a copy.
+    const placeholder = (await layout(worker)).find((window) => window.id === B).tabs.find((tab) => tab.placeholder === 'a');
+    await worker.run((windowId, url) => chrome.tabs.create({ windowId, url, pinned: true, active: false }),
+      B, await worker.run(async (id) => (await chrome.tabs.get(id)).url, placeholder.id));
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    const first = await worker.run(() => globalThis.reopened);
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    const second = await worker.run(() => globalThis.reopened);
+    const kept = await worker.run(async () => (await chrome.storage.local.get('trace')).trace.flatMap((entry) => entry.decisions).filter((decision) => decision.keptReopened).length);
+    assert.deepEqual({ stopped: second === first, few: first <= 6, kept: kept > 0 }, { stopped: true, few: true, kept: true }, JSON.stringify({ first, second, kept }));
   });
 
   test('a restart without session restore keeps each pin once', async () => {
@@ -1882,6 +1931,28 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
       await waitFor(() => again.run(() => !document.getElementById('chip').hidden));
       await again.press('Backspace');
       await waitFor(() => again.run(() => document.getElementById('chip').hidden));
+    } finally {
+      await rm(copy, { recursive: true, force: true });
+    }
+  });
+
+  test('a site behind a login has its search learned with the page\'s session', async () => {
+    const copy = await mkdtemp(join(tmpdir(), 'synced-pins-learn-'));
+    try {
+      await cp(extensionPath, copy, { recursive: true, filter: (path) => !/\/(node_modules|dist|\.git)(\/|$)/.test(path) });
+      const manifest = JSON.parse(await readFile(join(copy, 'manifest.json'), 'utf8'));
+      manifest.host_permissions = ['<all_urls>'];
+      delete manifest.optional_host_permissions;
+      await writeFile(join(copy, 'manifest.json'), JSON.stringify(manifest));
+      const { worker } = await open({ extension: copy });
+      await waitFor(() => worker.run(async () => (await chrome.scripting.getRegisteredContentScripts()).length > 0));
+      await worker.run((url) => chrome.tabs.create({ url }), pageUrl('gated'));
+      let learned;
+      await waitFor(async () => {
+        learned = await worker.run(async () => (await chrome.storage.local.get('learnedSearch')).learnedSearch?.['127.0.0.1']);
+        return learned !== undefined;
+      });
+      assert.equal(learned, `${origin}/find?q={{{s}}}&ref=opensearch`);
     } finally {
       await rm(copy, { recursive: true, force: true });
     }
