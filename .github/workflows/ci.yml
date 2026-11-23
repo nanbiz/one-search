@@ -165,9 +165,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
       # The store takes the same zip and puts it up for review, unless it
-      # already serves this version. A service account signs a JWT that Google
-      # trades for an access token.
-      - if: steps.version.outputs.published != steps.version.outputs.tag && env.CWS_SERVICE_ACCOUNT_KEY != '' && (github.event_name != 'schedule' || steps.version.outputs.exists == 'true')
+      # already serves this version: on a push only the release cut in that
+      # run, so later commits never go up under a version already released,
+      # and in the daily run the release's own zip. A service account signs a
+      # JWT that Google trades for an access token.
+      - if: steps.version.outputs.published != steps.version.outputs.tag && env.CWS_SERVICE_ACCOUNT_KEY != '' && ((github.event_name == 'schedule' && steps.version.outputs.exists == 'true') || (github.event_name != 'schedule' && steps.version.outputs.exists != 'true'))
         run: |
           b64url() { openssl base64 -e -A | tr '+/' '-_' | tr -d '='; }
           key="$RUNNER_TEMP/cws-key.pem"
