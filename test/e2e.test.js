@@ -645,13 +645,22 @@ describe('synced pins', { skip, concurrency: 1 }, () => {
     await new Promise((resolve) => setTimeout(resolve, 1000));
     const before = await allPinnedAreas(worker);
     const { worker: restarted } = await restart();
+    // Each window shows both pins in order, each live in exactly one window;
+    // which window a pin lives in after the start is the browser's choice.
+    const shape = (areas) => {
+      const parsed = areas.map((area) => JSON.parse(area));
+      return {
+        order: [...new Set(parsed.map((area) => area.map((title) => title.replace('~', '')).join()))],
+        live: parsed.flat().filter((title) => !title.startsWith('~')).sort(),
+      };
+    };
     let after;
     await waitFor(async () => {
-      after = await allPinnedAreas(restarted);
-      return JSON.stringify(after) === JSON.stringify(before);
+      after = shape(await allPinnedAreas(restarted));
+      return JSON.stringify(after) === JSON.stringify(shape(before));
     }).catch(() => {});
     const stored = await restarted.run(async () => (await chrome.storage.local.get('pins')).pins.length);
-    assert.deepEqual({ after, stored }, { after: before, stored: 2 });
+    assert.deepEqual({ after, stored }, { after: shape(before), stored: 2 });
   });
 
   test('two pins whose pages come to the same address keep still, also across a restart', async () => {
@@ -705,7 +714,9 @@ describe('synced pins', { skip, concurrency: 1 }, () => {
         const window = await chrome.windows.create({ url: 'about:blank' });
         for (const tab of tabs) {
           const at = tab.id ? `${page}?${new URLSearchParams({ pin: tab.id, url: tab.url, title: 'x' })}` : tab.url;
-          await chrome.tabs.create({ windowId: window.id, url: at, pinned: true, active: false });
+          const created = await chrome.tabs.create({ windowId: window.id, url: at, pinned: true, active: false });
+          // Vivaldi ignores pinned when it creates a tab.
+          if (!created.pinned) await chrome.tabs.update(created.id, { pinned: true });
         }
       }
       for (const window of (await chrome.windows.getAll({ populate: true })).filter((w) => w.tabs.every((t) => !t.pinned))) {
@@ -756,7 +767,9 @@ describe('synced pins', { skip, concurrency: 1 }, () => {
       const window = await chrome.windows.create({ url: 'about:blank' });
       for (const [id, at] of strip) {
         const address = id ? `${page}?${new URLSearchParams({ pin: id, url: url[at], title: at })}` : url[at];
-        await chrome.tabs.create({ windowId: window.id, url: address, pinned: true, active: false });
+        const created = await chrome.tabs.create({ windowId: window.id, url: address, pinned: true, active: false });
+        // Vivaldi ignores pinned when it creates a tab.
+        if (!created.pinned) await chrome.tabs.update(created.id, { pinned: true });
       }
       await new Promise((resolve) => setTimeout(resolve, 1500));
       const created = (await chrome.tabs.query({ windowId: window.id, pinned: true }));
@@ -803,13 +816,15 @@ describe('synced pins', { skip, concurrency: 1 }, () => {
         const tab = where.get(id);
         if (!tab || isWindowClosing || !tab.url.includes('/src/placeholder.html')) return;
         globalThis.reopened += 1;
-        chrome.tabs.create({ ...tab, pinned: true, active: false });
+        chrome.tabs.create({ ...tab, pinned: true, active: false }).then((created) => created.pinned || chrome.tabs.update(created.id, { pinned: true }));
       });
     });
     // A second placeholder of a in B, which the extension closes as a copy.
     const placeholder = (await layout(worker)).find((window) => window.id === B).tabs.find((tab) => tab.placeholder === 'a');
-    await worker.run((windowId, url) => chrome.tabs.create({ windowId, url, pinned: true, active: false }),
-      B, await worker.run(async (id) => (await chrome.tabs.get(id)).url, placeholder.id));
+    await worker.run(async (windowId, url) => {
+      const created = await chrome.tabs.create({ windowId, url, pinned: true, active: false });
+      if (!created.pinned) await chrome.tabs.update(created.id, { pinned: true });
+    }, B, await worker.run(async (id) => (await chrome.tabs.get(id)).url, placeholder.id));
     await new Promise((resolve) => setTimeout(resolve, 3000));
     const first = await worker.run(() => globalThis.reopened);
     await new Promise((resolve) => setTimeout(resolve, 3000));
@@ -1462,7 +1477,7 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
       .find((tab) => (tab.pendingUrl || tab.url).includes('/src/overlay.html?mode=tab') && (tab.pendingUrl || tab.url).includes('picture=1'))?.id, A);
     await waitFor(overlayTab);
     const overlay = await browser.page((url) => url.includes('/src/overlay.html?mode=tab'));
-    await waitFor(() => overlay.run(() => document.body.classList.contains('picture')));
+    await waitFor(() => overlay.run(() => document.body?.classList.contains('picture') === true));
     // The page's own code, run once the page is free, opens nothing more.
     await new Promise((resolve) => setTimeout(resolve, 1200));
     assert.equal(await page.run(() => document.getElementById('synced-pins-overlay')), null);

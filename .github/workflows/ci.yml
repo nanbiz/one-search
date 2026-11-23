@@ -81,6 +81,34 @@ jobs:
       - run: sh scripts/test-e2e.sh
         timeout-minutes: 15
 
+  # Every push to main that passes the tests replaces the test-build
+  # pre-release, so a change can be tried at once, before any version goes to
+  # the store. Its version adds the run number as a fourth part, which also
+  # names the worker script anew, so loading it unpacked over an earlier test
+  # build runs the new code.
+  test-build:
+    runs-on: ubuntu-latest
+    needs: e2e
+    if: github.event_name == 'push' && needs.e2e.result == 'success'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: |
+          version="$(jq -r .version manifest.json).${{ github.run_number }}"
+          jq --arg v "$version" '.version = $v' manifest.json > "$RUNNER_TEMP/manifest.json"
+          mv "$RUNNER_TEMP/manifest.json" manifest.json
+          node scripts/package.js
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - run: |
+          gh release delete test-build --yes --cleanup-tag || true
+          gh release create test-build dist/*.zip --prerelease --target "$GITHUB_SHA" --title "Test build $VERSION" --notes "Built from $GITHUB_SHA."
+        env:
+          GH_TOKEN: ${{ github.token }}
+
   release:
     runs-on: ubuntu-latest
     needs: e2e
