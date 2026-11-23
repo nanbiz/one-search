@@ -105,6 +105,9 @@ jobs:
           echo "VERSION=$version" >> "$GITHUB_ENV"
       - run: |
           gh release delete test-build --yes --cleanup-tag || true
+          # The same zip also under a fixed name, so one download link always
+          # gives the newest test build.
+          cp dist/synced-pins-*.zip dist/synced-pins-test.zip
           gh release create test-build dist/*.zip --prerelease --target "$GITHUB_SHA" --title "Test build $VERSION" --notes "Built from $GITHUB_SHA."
         env:
           GH_TOKEN: ${{ github.token }}
