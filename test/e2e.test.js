@@ -1477,7 +1477,11 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
     pressShortcut(page);
     const overlayTab = () => worker.run(async (windowId) => (await chrome.tabs.query({ windowId }))
       .find((tab) => (tab.pendingUrl || tab.url).includes('/src/overlay.html?mode=tab') && (tab.pendingUrl || tab.url).includes('picture=1'))?.id, A);
-    await waitFor(overlayTab);
+    const plainOverlayTab = () => worker.run(async (windowId) => (await chrome.tabs.query({ windowId }))
+      .some((tab) => (tab.pendingUrl || tab.url).includes('/src/overlay.html?mode=tab') && !(tab.pendingUrl || tab.url).includes('picture=1')), A);
+    const vivaldi = /vivaldi/i.test(executable ?? '');
+    await waitFor(async () => (await overlayTab()) || (vivaldi && await plainOverlayTab()));
+    if (!(await overlayTab())) throw new NoOverlayInPage('Vivaldi gives the extension no access to the page on the CI runner, so the overlay opens as a plain tab');
     const overlay = await browser.page((url) => url.includes('/src/overlay.html?mode=tab'));
     await waitFor(() => overlay.run(() => document.body?.classList.contains('picture') === true));
     // The page's own code, run once the page is free, opens nothing more.
@@ -2106,7 +2110,9 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
     await waitFor(async () => (await activeIn(worker, A)) === order[10].id);
     await waitFor(async () => !(await overlayOpen(browser)));
     // In number mode one Escape closes the overlay.
-    const again = await pressOverlayShortcut(browser, 'k');
+    // The tab picked is the 11th in the strip, whichever page that is where
+    // the browser opened a page of its own beside the window's first.
+    const again = await pressOverlayShortcut(browser, order[10].title, order[10].url);
     await waitFor(() => again.run(() => document.activeElement?.id === 'query'));
     await tapAlt(again);
     await waitFor(() => again.run(() => document.getElementById('box').classList.contains('numbers')));
