@@ -1877,18 +1877,22 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
     await waitFor(() => page.run(() => document.getElementById('synced-pins-overlay')?.dataset.ready === '1'));
     // The overlay is drawn over the player, not under it.
     assert.equal(await page.run(() => document.elementFromPoint(innerWidth / 2, innerHeight / 2)?.closest('#synced-pins-overlay') !== null), true);
-    // The key goes in through the page, the way the keyboard sends it.
-    await page.press('Escape');
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    // The key goes in through the page, the way the keyboard sends it. In
+    // full screen with the keyboard held Chrome at times never confirms the
+    // key event, so the outcome is waited for instead.
+    await page.press('Escape', { wait: false });
     await waitFor(async () => !(await overlayOpen(browser)));
     // Brave and Vivaldi take Escape to leave full screen whatever the page
     // holds; the overlay goes with it.
     if (/brave|vivaldi/i.test(executable ?? '')) return;
     assert.equal(await page.run(() => document.fullscreenElement !== null), true);
     assert.equal(await page.run(() => document.hasFocus()), true);
-    // With the overlay gone Escape is the browser's again.
-    await page.press('Escape');
-    await waitFor(() => page.run(() => document.fullscreenElement === null));
+    // With the overlay gone Escape is the browser's again, once the keyboard
+    // the overlay held is let go as the first Escape's key comes up.
+    await waitFor(async () => {
+      await page.press('Escape', { wait: false });
+      return page.run(() => document.fullscreenElement === null);
+    });
   });
 
   overlayTest('with history allowed, a typed site comes first and visited pages after the tabs', async () => {
