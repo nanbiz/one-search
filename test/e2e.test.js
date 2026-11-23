@@ -713,6 +713,62 @@ describe('synced pins', { skip, concurrency: 1 }, () => {
       { passes: 0, pinned: [4, 4], pins: 4, ids: 4 }, JSON.stringify(second.trace.slice(0, 2)));
   });
 
+  test('a window whose placeholders all wait unloaded keeps still', async () => {
+    const { worker } = await open();
+    const url = { W1: pageUrl('watch1'), W: pageUrl('watch'), M: pageUrl('music'), U: pageUrl('usage'), K8: pageUrl('ws8'), K3: pageUrl('ws3'), G: pageUrl('gh'), GN: pageUrl('ghn') };
+    // The pinned tabs of the window in strip order: a pin id for a
+    // placeholder, null for a live page, and whether the browser holds it
+    // unloaded.
+    const strip = [['bf66f3e3', 'W', true], ['7c9cbb9b', 'U', true], [null, 'W1', false], [null, 'K8', false],
+      ['35f2c92d', 'W', true], ['e75b71b8', 'U', true], ['5ee0c653', 'U', true], ['d543c5c8', 'G', true], [null, 'G', true],
+      ['f8a66dd5', 'G', true], ['733ec828', 'U', true], ['5ee0c653', 'U', true], ['733ec828', 'U', true], ['7c9cbb9b', 'U', true]];
+    // Each pin with the index of the tab it holds and whether it waits to
+    // come back from a reopened placeholder.
+    const pins = [['bf66f3e3', 'W1', 'M', 2, false], ['7c9cbb9b', 'K8', 'K3', 3, false], ['35f2c92d', 'W', 'W', 4, true],
+      ['e75b71b8', 'U', 'U', 5, true], ['5ee0c653', 'U', 'U', 6, true], ['d543c5c8', 'G', 'G', 8, false],
+      ['f8a66dd5', 'G', 'GN', 9, true], ['733ec828', 'U', 'U', 10, true]];
+    await worker.run(async (url, strip, pins) => {
+      const get = chrome.storage.session.get.bind(chrome.storage.session);
+      let release;
+      globalThis.hold = new Promise((resolve) => { release = resolve; });
+      globalThis.release = () => { chrome.storage.session.get = get; release(); };
+      chrome.storage.session.get = async (...args) => { await globalThis.hold; return get(...args); };
+      const page = chrome.runtime.getURL('src/placeholder.html');
+      const window = await chrome.windows.create({ url: 'about:blank' });
+      for (const [id, at] of strip) {
+        const address = id ? `${page}?${new URLSearchParams({ pin: id, url: url[at], title: at })}` : url[at];
+        await chrome.tabs.create({ windowId: window.id, url: address, pinned: true, active: false });
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const created = (await chrome.tabs.query({ windowId: window.id, pinned: true }));
+      for (const [index, [, , unload]] of strip.entries()) {
+        if (unload) await chrome.tabs.discard(created[index].id).catch(() => {});
+      }
+      const tabs = await chrome.tabs.query({ windowId: window.id, pinned: true });
+      for (const other of (await chrome.windows.getAll()).filter((w) => w.id !== window.id)) await chrome.windows.remove(other.id);
+      const state = pins.map(([id, at, home, index, reviving]) => ({
+        id, url: url[at], title: at, home: { url: url[home], title: home }, tabId: tabs[index].id, windowId: window.id, ...(reviving && { reviving: true }),
+      }));
+      await chrome.storage.session.clear();
+      await chrome.storage.session.set({ pins: state, placeholders: {}, focusOrder: [window.id], orders: { [window.id]: state.map((pin) => pin.id) } });
+      await chrome.storage.local.set({ pins: state.map(({ id, url: at, title, home }) => ({ id, url: at, title, home })), trace: [] });
+    }, url, strip, pins);
+    await worker.run(() => globalThis.release());
+    // A tab event starts a pass, as any change in the window does.
+    await worker.run(async () => chrome.tabs.create({ url: 'about:blank', active: true }));
+    await new Promise((resolve) => setTimeout(resolve, 4000));
+    const read = () => worker.run(async () => ({
+      trace: (await chrome.storage.local.get('trace')).trace ?? [],
+      pinned: (await chrome.tabs.query({ pinned: true })).length,
+    }));
+    const first = await read();
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    const second = await read();
+    console.log('PROBE', JSON.stringify({ passes: [first.trace.length, second.trace.length], pinned: [first.pinned, second.pinned] }));
+    console.log('PROBE last', JSON.stringify(second.trace.slice(-1)).slice(0, 1500));
+    assert.equal(second.trace.length, first.trace.length);
+  });
+
   test('a restart without session restore keeps each pin once', async () => {
     const { worker } = await open();
     await threeWindowsWithPins(worker);
