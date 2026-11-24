@@ -1728,6 +1728,26 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
     }).catch((error) => assert.fail(`${error.message}\nversion tab ${id}, window B: ${JSON.stringify(tabs)}`));
   });
 
+  test('two quick presses over a page the browser keeps to itself open one overlay tab', async () => {
+    const { worker, browser } = await open();
+    const B = await createWindow(worker, 'B');
+    const [{ id }] = await tabsIn(worker, B);
+    await worker.run((tabId) => chrome.tabs.update(tabId, { url: 'chrome://version' }), id);
+    const version = await browser.page((url) => /^[a-z]+:\/\/version/.test(url));
+    await current.browser.connection.send('Emulation.setFocusEmulationEnabled', { enabled: true }, version.sessionId);
+    const overlays = async () => (await tabsIn(worker, B)).filter((tab) => tab.url.includes('/src/overlay.html'));
+    for (let attempt = 1; (await overlays()).length === 0; attempt++) {
+      pressShortcut(version);
+      pressShortcut(version);
+      await waitFor(async () => (await overlays()).length > 0, { timeout: 8_000 }).catch((error) => {
+        if (attempt === 3) throw error;
+      });
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    const tabs = await tabsIn(worker, B);
+    assert.equal(tabs.filter((tab) => tab.url.includes('/src/overlay.html')).length, 1, JSON.stringify(tabs));
+  });
+
   overlayTest('a local file takes the browser\'s file access: without it the overlay offers the switch, with it the file opens and the overlay draws over it', async () => {
     let { worker, browser } = await open();
     const A = await createWindow(worker, 'A');

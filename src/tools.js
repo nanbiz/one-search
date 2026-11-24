@@ -15,8 +15,33 @@ function overlayUrl(mode, tab) {
   return chrome.runtime.getURL(`${overlayPath}?${new URLSearchParams({ mode, tab: tab.id, window: tab.windowId })}`);
 }
 
+// Windows the overlay is being opened in as a tab, and the overlay tabs just
+// opened: a tab that has only just been created can show no address yet, so
+// a second press arriving then would otherwise open a second overlay over it.
+const openingIn = new Set();
+const justOpened = new Set();
+
 function isOverlayTab(tab) {
-  return (tab.pendingUrl || tab.url || '').startsWith(chrome.runtime.getURL(overlayPath));
+  return justOpened.has(tab.id) || (tab.pendingUrl || tab.url || '').startsWith(chrome.runtime.getURL(overlayPath));
+}
+
+// Opens the overlay as a tab with what open() does first, once per window
+// at a time, and remembers the tab as the overlay until its address shows.
+// Resolves with the tab, or nothing when an overlay is being opened there
+// already.
+async function openOverlayTab(windowId, open) {
+  if (openingIn.has(windowId)) return undefined;
+  openingIn.add(windowId);
+  try {
+    const created = await open();
+    if (created) {
+      justOpened.add(created.id);
+      setTimeout(() => justOpened.delete(created.id), 5_000);
+    }
+    return created;
+  } finally {
+    openingIn.delete(windowId);
+  }
 }
 
 // Opens the overlay over the page in the tab, centred over the page dimmed and
@@ -335,12 +360,13 @@ function hostnameOf(url) {
 
 // The overlay as a tab of its own beside the page, showing a picture of the
 // page dimmed and blurred behind it, as the overlay over the page looks.
-async function openOverPicture(tab) {
-  const image = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality: 70 }).catch(() => null);
-  if (image) await chrome.storage.session.set({ overlayPicture: { tabId: tab.id, image } }).catch(() => {});
-  const query = new URLSearchParams({ mode: 'tab', closes: '1', back: tab.id, picture: '1' });
-  const created = await chrome.tabs.create({ windowId: tab.windowId, index: tab.index + 1, active: true, url: chrome.runtime.getURL(`${overlayPath}?${query}`) }).catch(() => null);
-  return created?.id;
+function openOverPicture(tab) {
+  return openOverlayTab(tab.windowId, async () => {
+    const image = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality: 70 }).catch(() => null);
+    if (image) await chrome.storage.session.set({ overlayPicture: { tabId: tab.id, image } }).catch(() => {});
+    const query = new URLSearchParams({ mode: 'tab', closes: '1', back: tab.id, picture: '1' });
+    return chrome.tabs.create({ windowId: tab.windowId, index: tab.index + 1, active: true, url: chrome.runtime.getURL(`${overlayPath}?${query}`) }).catch(() => null);
+  }).then((created) => created?.id);
 }
 
 // Closes the overlay over a page the way its own close does. Runs in the
@@ -353,7 +379,7 @@ export async function toggleOverlay(tab) {
   overlayCommandAt = Date.now();
   // A New Tab page being turned into the overlay gets it that way; no
   // extension may draw on it, so a second overlay would open beside that one.
-  if (!tab || isOverlayTab(tab) || replacing.has(tab.id)) return;
+  if (!tab || isOverlayTab(tab) || replacing.has(tab.id) || openingIn.has(tab.windowId)) return;
   try {
     const query = new URLSearchParams({ mode: 'frame', tab: tab.id, window: tab.windowId }).toString();
     const key = overlayCommandAt;
@@ -390,23 +416,26 @@ export async function toggleOverlay(tab) {
     }
     return;
   } catch (error) {
-    // The page cannot host it; the reason stays for the session, for finding
-    // out why on a page where it should have.
-    const focused = await chrome.windows.getLastFocused({ populate: true }).catch(() => null);
-    await chrome.storage.session.set({
-      overlayFallback: {
-        reason: String(error?.message ?? error),
-        url: tab.url ?? '',
-        tabId: tab.id,
-        windowId: tab.windowId,
-        focusedWindowId: focused?.id ?? null,
-        focusedTabId: focused?.tabs?.find((other) => other.active)?.id ?? null,
-        at: Date.now(),
-      },
+    // The page cannot host it, so the overlay opens as a tab beside it. The
+    // reason stays for the session, for finding out why on a page where it
+    // should have.
+    await openOverlayTab(tab.windowId, async () => {
+      const focused = await chrome.windows.getLastFocused({ populate: true }).catch(() => null);
+      await chrome.storage.session.set({
+        overlayFallback: {
+          reason: String(error?.message ?? error),
+          url: tab.url ?? '',
+          tabId: tab.id,
+          windowId: tab.windowId,
+          focusedWindowId: focused?.id ?? null,
+          focusedTabId: focused?.tabs?.find((other) => other.active)?.id ?? null,
+          at: Date.now(),
+        },
+      });
+      const query = new URLSearchParams({ mode: 'tab', closes: '1', back: tab.id });
+      return chrome.tabs.create({ windowId: tab.windowId, index: tab.index + 1, active: true, url: chrome.runtime.getURL(`${overlayPath}?${query}`) });
     });
   }
-  const query = new URLSearchParams({ mode: 'tab', closes: '1', back: tab.id });
-  await chrome.tabs.create({ windowId: tab.windowId, index: tab.index + 1, active: true, url: chrome.runtime.getURL(`${overlayPath}?${query}`) });
 }
 
 // The tabs a click on the button closes in the window: every tab that is
