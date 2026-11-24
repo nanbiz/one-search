@@ -55,7 +55,13 @@ async function showSwitch() {
   } else {
     for (const tab of await chrome.tabs.query({})) await chrome.action.setBadgeText({ tabId: tab.id, text: '' }).catch(() => {});
   }
-  await chrome.action.setIcon({ imageData: await buttonIcon(!on) }).catch((error) => console.error('Synced Pins could not draw its button', error));
+  try {
+    await chrome.action.setIcon({ imageData: await buttonIcon(!on) });
+  } catch (error) {
+    // Without the drawn icon the button keeps its own from the manifest.
+    console.warn('Synced Pins could not draw its button', error);
+    await chrome.action.setIcon({ path: action.default_icon }).catch(() => {});
+  }
 }
 
 // The menu writes the setting, and every change of it is applied here.

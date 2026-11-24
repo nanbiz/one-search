@@ -820,6 +820,9 @@ document.addEventListener('mousedown', (event) => {
   }
 });
 
+// Focused by script, as a frame from another origin than the page it is
+// drawn over may not take focus through autofocus.
+query.focus();
 window.addEventListener('focus', () => query.focus());
 
 function isFileAddress(text) {
