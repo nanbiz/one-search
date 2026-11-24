@@ -88,7 +88,16 @@ export function createPinSync(chrome) {
 
   async function writeTrace() {
     if (decisions.length === 0) return;
-    const entry = { worker: instance, hints: recentHints.splice(0), decisions };
+    // The ids of the pin list the pass left, so the entry where a pin was
+    // doubled shows it; like the decisions, it names no address.
+    const { pins = [] } = await chrome.storage.session.get('pins');
+    const entry = {
+      worker: instance,
+      version: chrome.runtime.getManifest?.().version,
+      hints: recentHints.splice(0),
+      decisions,
+      pins: pins.map((pin) => pin.id),
+    };
     decisions = [];
     const { trace = [] } = await chrome.storage.local.get('trace');
     trace.push(entry);

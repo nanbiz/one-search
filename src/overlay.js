@@ -641,14 +641,18 @@ query.addEventListener('keydown', (event) => {
   }
 });
 
-// Number mode: Alt tapped on its own turns typing off and the tabs' keys on,
-// so a key alone picks its tab; Alt again turns typing back on, with what was
-// typed kept, and Escape closes the overlay as it always does.
+// Number mode: Alt pressed on its own turns typing off and the tabs' keys on
+// at once, so a key picks its tab while Alt is held or, once Alt is let go,
+// alone; Alt tapped again turns typing back on, with what was typed kept, and
+// Escape closes the overlay as it always does.
 const box = document.getElementById('box');
 let numberMode = false;
 // The first half of a two key label, 0, waiting for the second.
 let pendingKey = '';
 let altAlone = false;
+// Number mode came on with this press of Alt, which shows the tabs' keys as
+// soon as Alt goes down.
+let altEntered = false;
 
 // A change of the box moves what stays from where it was to where it goes,
 // and fades in what is new: each tab's row slides to its new place and the
@@ -728,6 +732,10 @@ document.addEventListener('keydown', (event) => {
   altAlone = key === 'Alt' && !event.repeat && !event.ctrlKey && !event.metaKey && !event.shiftKey;
   if (key === 'Alt') {
     event.preventDefault();
+    if (altAlone && !numberMode) {
+      altEntered = true;
+      setNumberMode(true);
+    }
     return;
   }
   // Alt with a tab's key picks that tab, whatever is typed.
@@ -783,16 +791,25 @@ document.addEventListener('keydown', (event) => {
   }
 });
 
+// Alt let go alone keeps the number mode its press brought, or, pressed in
+// number mode, turns typing back on; let go after another key that picked no
+// tab, typing comes back.
 document.addEventListener('keyup', (event) => {
   if (event.key !== 'Alt') return;
   event.preventDefault();
-  if (altAlone) setNumberMode(!numberMode);
+  if (altEntered) {
+    if (!altAlone) setNumberMode(false);
+  } else if (altAlone) {
+    setNumberMode(!numberMode);
+  }
   altAlone = false;
+  altEntered = false;
 });
 
 // Alt let go outside the overlay is no tap.
 window.addEventListener('blur', () => {
   altAlone = false;
+  altEntered = false;
 });
 
 // A click beside the box over a page closes the overlay, as clicking outside

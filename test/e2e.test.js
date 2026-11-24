@@ -832,7 +832,10 @@ describe('synced pins', { skip, concurrency: 1 }, () => {
     await new Promise((resolve) => setTimeout(resolve, 3000));
     const second = await worker.run(() => globalThis.reopened);
     const kept = await worker.run(async () => (await chrome.storage.local.get('trace')).trace.flatMap((entry) => entry.decisions).filter((decision) => decision.keptReopened).length);
-    assert.deepEqual({ stopped: second === first, few: first <= 6, kept: kept > 0 }, { stopped: true, few: true, kept: true }, JSON.stringify({ first, second, kept }));
+    // Each trace entry names the build and the ids of the pin list the pass left.
+    const last = await worker.run(async () => (await chrome.storage.local.get('trace')).trace.at(-1));
+    const described = Boolean(last.version) && last.pins.length > 0 && last.pins.every((id) => typeof id === 'string');
+    assert.deepEqual({ stopped: second === first, few: first <= 6, kept: kept > 0, described }, { stopped: true, few: true, kept: true, described: true }, JSON.stringify({ first, second, kept, last }));
   });
 
   test('switched off the extension leaves the tabs alone and a placeholder opens its page where it is; switched on it keeps one pin per page again', async () => {
@@ -2126,6 +2129,35 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
   }
 
   const activeIn = async (worker, windowId) => (await tabsIn(worker, windowId)).find((tab) => tab.active)?.id;
+
+  overlayTest('holding Alt shows the tabs\' keys at once; let go alone they stay, and after another key typing comes back', async () => {
+    const { worker, browser } = await open();
+    const A = await createWindow(worker, 'A');
+    await openTab(worker, A, 'b', { active: false });
+    const frame = await pressOverlayShortcut(browser, 'A');
+    await waitFor(() => frame.run(() => document.activeElement?.id === 'query'));
+    const alt = (type) => current.browser.connection.send('Input.dispatchKeyEvent', {
+      type, key: 'Alt', code: 'AltLeft', modifiers: type === 'keyUp' ? 0 : 1, windowsVirtualKeyCode: 18, nativeVirtualKeyCode: 18,
+    }, frame.sessionId);
+    const numbers = () => frame.run(() => document.getElementById('box').classList.contains('numbers'));
+    // Down: the keys show before Alt is let go.
+    await alt('rawKeyDown');
+    await waitFor(numbers);
+    await alt('keyUp');
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(await numbers(), true);
+    // A tap turns typing back on.
+    await alt('rawKeyDown');
+    await alt('keyUp');
+    await waitFor(async () => !(await numbers()));
+    // Held with Shift, which picks no tab, typing comes back when let go.
+    await alt('rawKeyDown');
+    await waitFor(numbers);
+    await current.browser.connection.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Shift', code: 'ShiftLeft', modifiers: 9, windowsVirtualKeyCode: 16 }, frame.sessionId);
+    await current.browser.connection.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Shift', code: 'ShiftLeft', modifiers: 1, windowsVirtualKeyCode: 16 }, frame.sessionId);
+    await alt('keyUp');
+    await waitFor(async () => !(await numbers()));
+  });
 
   overlayTest('a tap on Alt turns typing off, and a tab\'s key alone picks it; Alt again turns typing back on with the text kept, and Escape closes', async () => {
     const { worker, browser } = await open();

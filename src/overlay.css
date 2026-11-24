@@ -236,16 +236,6 @@ body.tab #box {
   flex: 1;
 }
 
-.offer kbd {
-  display: inline-block;
-  padding: 0 6px;
-  border: 1px solid var(--line);
-  border-bottom-width: 2px;
-  border-radius: 5px;
-  color: var(--text);
-  font: 12px ui-monospace, monospace;
-}
-
 .offer button {
   border: 0;
   border-radius: 7px;
