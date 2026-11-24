@@ -12,7 +12,8 @@
     "activeTab",
     "scripting",
     "search",
-    "alarms"
+    "alarms",
+    "contextMenus"
   ],
   "incognito": "not_allowed",
   "background": {

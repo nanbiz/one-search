@@ -835,6 +835,47 @@ describe('synced pins', { skip, concurrency: 1 }, () => {
     assert.deepEqual({ stopped: second === first, few: first <= 6, kept: kept > 0 }, { stopped: true, few: true, kept: true }, JSON.stringify({ first, second, kept }));
   });
 
+  test('switched off the extension leaves the tabs alone and a placeholder opens its page where it is; switched on it keeps one pin per page again', async () => {
+    const { worker, browser } = await open();
+    const { windows: [A, B] } = await threeWindowsWithPins(worker);
+    // The switch sits in the button's right-click menu; updating an entry
+    // fails where there is none.
+    await worker.run(() => chrome.contextMenus.update('on', {}));
+    await worker.run(() => chrome.storage.local.set({ off: true }));
+    await waitFor(() => worker.run(async () => (await chrome.action.getTitle({})).endsWith(' is off')));
+    // A New Tab page stays the browser's own.
+    const newTab = await worker.run(async (windowId) => (await chrome.tabs.create({ windowId, url: 'chrome://newtab/' })).id, A);
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    assert.doesNotMatch(await worker.run(async (id) => { const tab = await chrome.tabs.get(id); return tab.pendingUrl || tab.url; }, newTab), /overlay\.html/);
+    // A placeholder clicked opens its page in its own window, and the page
+    // in the other window stays.
+    const placeholder = (await layout(worker)).find((window) => window.id === B).tabs.find((tab) => tab.placeholder === 'a');
+    // Every window holds a placeholder of a; the one clicked is B's, told
+    // apart by the tab each page is in.
+    await worker.run((id) => chrome.tabs.update(id, { active: true }), placeholder.id);
+    let page;
+    await waitFor(async () => {
+      for (const info of (await browser.targets()).filter((target) => target.type === 'page' && target.url.includes('/src/placeholder.html'))) {
+        const candidate = await browser.attach(info.targetId);
+        if (await candidate.run(async () => (await chrome.tabs.getCurrent())?.id) === placeholder.id) page = candidate;
+      }
+      return page !== undefined;
+    });
+    await page.run(() => document.getElementById('summon').click());
+    await waitFor(() => worker.run(async (id, url) => (await chrome.tabs.get(id)).url === url, placeholder.id, pageUrl('a')));
+    await waitForTitle(worker, placeholder.id, 'a');
+    assert.deepEqual((await pinnedAreas(worker, [A, B])), [['a', 'b'], ['a', '~b']]);
+    // Switched on, the pins are built from the tabs again: one live tab each.
+    await worker.run(() => chrome.storage.local.set({ off: false }));
+    await waitFor(() => worker.run(async () => !(await chrome.action.getTitle({})).endsWith(' is off')));
+    let areas;
+    await waitFor(async () => {
+      areas = (await allPinnedAreas(worker)).map((area) => JSON.parse(area));
+      const live = areas.flat().filter((title) => !title.startsWith('~')).sort();
+      return JSON.stringify(live) === JSON.stringify(['a', 'b']) && areas.every((area) => area.length === 2);
+    }).catch(() => assert.fail(JSON.stringify(areas)));
+  });
+
   test('a restart without session restore keeps each pin once', async () => {
     const { worker } = await open();
     await threeWindowsWithPins(worker);
