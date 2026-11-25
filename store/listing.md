@@ -11,6 +11,7 @@ Fields as the developer dashboard asks for them. The package is the release zip
 - Store icon: icons/icon-128.png
 - Screenshots: store/screenshot-1.png, store/screenshot-2.png, store/screenshot-3.png
 - Small promo tile: store/promo-small-440x280.png, made with the icon by icons/build.sh
+- Promo video: https://www.youtube.com/watch?v=_SByNsuKSO8
 - Homepage: https://github.com/nanbiz/one-search
 - Support: https://github.com/nanbiz/one-search/issues
 
