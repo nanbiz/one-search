@@ -3,14 +3,13 @@ import { browserPages, quickActions } from './quick-actions.js';
 import { isCtrlT, overlayShortcut } from './shortcut.js';
 
 // The overlay opened instead of a new tab: type an address, a search or the
-// name of an action, or pick one of the open tabs or pins, and only then does
+// name of an action, or pick one of the open tabs, and only then does
 // a tab open. It runs over a page (frame) or as a tab of its own (tab).
 const params = new URLSearchParams(location.search);
 const mode = params.get('mode') ?? 'tab';
 // The tab the overlay was opened for is given up for whatever is picked: the
 // overlay's own tab, or the page the toolbar button's second click closes.
 const replacing = mode === 'tab' || params.get('replace') === '1';
-const placeholderPage = chrome.runtime.getURL('src/placeholder.html');
 const overlayPage = chrome.runtime.getURL('src/overlay.html');
 
 // Zen keeps the text of an overlay closed without a choice for this long, so
@@ -31,13 +30,8 @@ document.body.classList.add(mode);
 
 let target;
 let tabs = [];
-let pins = [];
 let items = [];
 let selected = 0;
-
-function isPlaceholder(tab) {
-  return (tab.pendingUrl || tab.url || '').startsWith(`${placeholderPage}?`);
-}
 
 function isOverlay(tab) {
   return (tab.pendingUrl || tab.url || '').startsWith(overlayPage);
@@ -165,7 +159,7 @@ function recalled(text) {
     keys.forEach((key) => shown.add(key));
     return false;
   };
-  for (const item of [...tabs, ...pins, ...sites.map((site) => ({ url: site.url, title: site.title }))]) {
+  for (const item of [...tabs, ...sites.map((site) => ({ url: site.url, title: site.title }))]) {
     if (item.url) shown.add(withoutFragment(item.url));
   }
   const take = (entries, max, kind) => {
@@ -228,17 +222,6 @@ function siteSearchItems(text) {
   if (!text.trim()) return [];
   const url = siteSearch.address.replaceAll('{{{s}}}', encodeURIComponent(text.trim()));
   return [{ title: text.trim(), url: siteSearch.url, favIconUrl: null, kind: 'Search', site: siteSearch.host, pick: () => openAddress(url) }];
-}
-
-// A pin's name: its own title, else that of its open tab, else its site.
-function pinName(pin) {
-  const live = tabs.find((tab) => tab.id === pin.tabId && !isPlaceholder(tab));
-  if (pin.title || live?.title) return pin.title || live.title;
-  try {
-    return new URL(pin.url).hostname.replace(/^www\./, '');
-  } catch {
-    return pin.url;
-  }
 }
 
 // An icon element that falls back to the browser's own copy of the site's
@@ -349,29 +332,33 @@ async function selectTab(tab) {
   await leaveOwnTab();
 }
 
-// A pin is selected in this window: its live tab where it lives here, or its
-// placeholder, which brings the live page over.
-async function selectPin(pin) {
-  const here = tabs.filter((tab) => tab.windowId === target.windowId);
-  const live = here.find((tab) => tab.id === pin.tabId);
-  const placeholder = here.find((tab) => isPlaceholder(tab)
-    && new URLSearchParams((tab.pendingUrl || tab.url).split('?')[1]).get('pin') === pin.id);
-  const tab = live ?? placeholder ?? tabs.find((other) => other.id === pin.tabId);
-  if (tab) await selectTab(tab);
-}
-
-function pinItems(text) {
-  return pins
-    .filter((pin) => containsWords(text, `${pin.title ?? ''} ${pin.url}`))
-    .map((pin) => ({ title: pinName(pin), url: pin.url, favIconUrl: pin.favIconUrl, kind: 'Switch to Tab', pick: () => selectPin(pin) }));
-}
-
+// A browser that shows its pinned tabs in every window has one of each per
+// window; a pinned page is offered once, the tab in this window first.
 function tabItems(text) {
-  return tabs
-    .filter((tab) => tab.id !== target.id && !tab.pinned && !isPlaceholder(tab) && !isOverlay(tab))
-    .filter((tab) => containsWords(text, `${tab.title ?? ''} ${tab.url ?? ''}`))
+  const offered = new Set();
+  return [...tabs]
+    .sort((a, b) => (b.windowId === target.windowId) - (a.windowId === target.windowId))
+    .filter((tab) => {
+      if (!tab.pinned) return true;
+      const address = withoutFragment(tab.url);
+      if (offered.has(address)) return false;
+      offered.add(address);
+      return true;
+    })
+    .filter((tab) => tab.id !== target.id && !isOverlay(tab))
+    .filter((tab) => containsWords(text, `${shownAs(tab).title} ${tab.url ?? ''}`))
     .slice(0, MAX_TABS)
-    .map((tab) => ({ title: tab.title || tab.url, url: tab.url, favIconUrl: tab.favIconUrl, kind: 'Switch to Tab', pick: () => selectTab(tab) }));
+    .map((tab) => ({ ...shownAs(tab), url: tab.url, kind: 'Switch to Tab', pick: () => selectTab(tab) }));
+}
+
+// The title and icon a tab is shown with. A pinned tab the browser has not
+// loaded in this window may have only its address for a title; a loaded tab
+// at that address lends it its own.
+function shownAs(tab) {
+  const loaded = tab.pinned && tab.status === 'unloaded'
+    && tabs.find((other) => other.status !== 'unloaded' && withoutFragment(other.url) === withoutFragment(tab.url));
+  const { title, favIconUrl } = loaded || tab;
+  return { title: title || tab.url, favIconUrl };
 }
 
 function actionItems(text) {
@@ -407,7 +394,6 @@ function results(text) {
     ...(!address || siteAhead ? sites : []),
     ...first,
     ...(address && !siteAhead ? sites : []),
-    ...pinItems(text),
     ...tabItems(text),
     ...pages,
     ...(address ? [searchItem] : []),
@@ -431,25 +417,21 @@ function currentTabId() {
 }
 
 // The window's tabs in the order of its tab strip, pinned ones first as the
-// strip has them; a pin's placeholder is shown as its pin.
+// strip has them.
 function tabRows() {
-  const pinOf = (tab) => pins.find((pin) => pin.tabId === tab.id)
-    ?? (isPlaceholder(tab) ? pins.find((pin) => pin.id === new URLSearchParams((tab.pendingUrl || tab.url).split('?')[1]).get('pin')) : undefined);
   return tabs
     .filter((tab) => tab.windowId === target.windowId && !isOverlay(tab))
     .sort((a, b) => a.index - b.index)
     .map((tab, index) => {
-      const pin = pinOf(tab);
       const current = tab.id === currentTabId();
       return {
-        title: pin ? pinName(pin) : tab.title || tab.url,
-        url: pin ? pin.url : tab.pendingUrl || tab.url,
-        favIconUrl: pin ? pin.favIconUrl : tab.favIconUrl,
+        ...shownAs(tab),
+        url: tab.pendingUrl || tab.url,
         kind: current ? 'Current' : tab.pinned ? 'Pinned' : '',
         key: keyOf(index),
         tabId: tab.id,
         current,
-        pick: () => (pin ? selectPin(pin) : selectTab(tab)),
+        pick: () => selectTab(tab),
       };
     });
 }
@@ -479,7 +461,7 @@ function render() {
   items.forEach((item, index) => {
     const element = row(item);
     if (item.tabId !== undefined) element.dataset.key = String(item.tabId);
-    const isSelected = index === selected && (!listingTabs() || keyboardOnPins);
+    const isSelected = index === selected && (!listingTabs() || keyboardOnTabs);
     element.classList.toggle('selected', isSelected);
     // The selected site that has a search of its own takes Tab to search it.
     if (isSelected && item.kind === 'Site' && searchAddressOf(item.url)) {
@@ -526,7 +508,7 @@ function row(item) {
 }
 
 // The list of tabs takes the selection only once the arrow keys reach it.
-let keyboardOnPins = false;
+let keyboardOnTabs = false;
 
 async function pick(index) {
   const item = items[index];
@@ -559,8 +541,8 @@ async function pick(index) {
 
 function move(step) {
   if (items.length === 0) return;
-  if (listingTabs() && !keyboardOnPins) {
-    keyboardOnPins = true;
+  if (listingTabs() && !keyboardOnTabs) {
+    keyboardOnTabs = true;
     selected = step > 0 ? 0 : items.length - 1;
   } else {
     selected = (selected + step + items.length) % items.length;
@@ -622,7 +604,7 @@ query.addEventListener('input', (event) => {
   typed = query.value;
   completing = event.inputType?.startsWith('insert') ?? true;
   selected = 0;
-  keyboardOnPins = false;
+  keyboardOnTabs = false;
   render();
   complete();
 });
@@ -706,7 +688,7 @@ window.addEventListener('scroll', placeSheet, true);
 function setNumberMode(on) {
   numberMode = on;
   pendingKey = '';
-  keyboardOnPins = false;
+  keyboardOnTabs = false;
   selected = 0;
   if (on) uncomplete();
   glide(render);
@@ -787,7 +769,7 @@ document.addEventListener('keydown', (event) => {
     move(-1);
   } else if (key === 'Enter') {
     event.preventDefault();
-    if (!listingTabs() || keyboardOnPins) pick(selected);
+    if (!listingTabs() || keyboardOnTabs) pick(selected);
   }
 });
 
@@ -943,10 +925,9 @@ async function start() {
   let self;
   let dismissals;
   let kept;
-  [self, tabs, { pins = [] }, filesAllowed, dismissals, { overlayQuery: kept }] = await Promise.all([
+  [self, tabs, filesAllowed, dismissals, { overlayQuery: kept }] = await Promise.all([
     mode === 'tab' ? chrome.tabs.getCurrent() : null,
     chrome.tabs.query({ windowType: 'normal' }),
-    chrome.storage.session.get('pins'),
     chrome.extension.isAllowedFileSchemeAccess(),
     chrome.storage.local.get('filesDismissed'),
     chrome.storage.session.get('overlayQuery'),
@@ -965,7 +946,6 @@ async function start() {
   const loaded = Date.now();
   filesDismissed = dismissals.filesDismissed === true;
   onFilePage = isFileAddress(tabs.find((tab) => tab.id === Number(params.get('back')))?.url ?? '');
-  pins = pins.filter((pin) => pin.url);
   target = self ?? tabs.find((tab) => tab.id === Number(params.get('tab')));
   if (!target) {
     close();

@@ -1,31 +1,18 @@
-import { createPinSync } from './pins.js';
 import { isCtrlT, overlayShortcut } from './shortcut.js';
 import { closeTabs, overlayReady, replaceNewTab, showClosableCount, toggleOverlay } from './tools.js';
 import { keepLearningSearch, learnFromPage, learnSearch, retryUnfound } from './site-search.js';
-import { readPlaceholderUrl } from './placeholder-url.js';
+import { retirePins } from './retire-pins.js';
 
-const sync = createPinSync(chrome);
 const normalWindows = { windowTypes: ['normal'] };
 
 // The right-click menu of the toolbar button switches the extension off and on.
-// Off, it leaves the tabs alone: pins are no longer kept alike across
-// windows, Ctrl+T opens the browser's New Tab page, the button does nothing
-// and turns grey, and a placeholder clicked opens its page where it is.
-// Switched on again, it builds the pin list from the tabs anew, as after a
-// browser start. Until the stored setting is read, events wait.
-const SESSION_STATE = ['pins', 'placeholders', 'focusOrder', 'orders'];
+// Off, Ctrl+T opens the browser's New Tab page, the button does nothing and
+// turns grey. Until the stored setting is read, presses wait.
 let on = null;
-const waiting = [];
 const switchRead = chrome.storage.local.get('off').then(({ off }) => {
   on = !off;
-  for (const hint of waiting.splice(0)) if (on) sync.note(hint);
   return on;
 });
-
-function note(hint) {
-  if (on === null) waiting.push(hint);
-  else if (on) sync.note(hint);
-}
 
 // The button's icon as image data, greyed while switched off.
 async function buttonIcon(grey) {
@@ -59,7 +46,7 @@ async function showSwitch() {
     await chrome.action.setIcon({ imageData: await buttonIcon(!on) });
   } catch (error) {
     // Without the drawn icon the button keeps its own from the manifest.
-    console.warn('Synced Pins could not draw its button', error);
+    console.warn('The extension could not draw its button', error);
     await chrome.action.setIcon({ path: action.default_icon }).catch(() => {});
   }
 }
@@ -69,10 +56,7 @@ async function applySwitch(next) {
   await switchRead;
   if (next === on) return;
   on = next;
-  // The pin list is built anew from the tabs when switched on.
-  await chrome.storage.session.remove(SESSION_STATE);
   await showSwitch();
-  if (on) sync.note({ type: 'layout' });
 }
 
 function createSwitchMenu() {
@@ -89,7 +73,9 @@ chrome.storage.local.onChanged.addListener(({ off }) => {
 });
 switchRead.then(() => (on ? null : showSwitch())).catch(() => {});
 
-const layoutChanged = () => note({ type: 'layout' });
+// Pins kept by versions that shared them across windows.
+retirePins().catch(() => {});
+chrome.windows.onCreated.addListener(() => retirePins().catch(() => {}), normalWindows);
 
 // Once after installation the page that puts the overlay on Ctrl+T opens,
 // unless it is there already. The browser can report the installation before
@@ -151,7 +137,6 @@ async function openSetup(windowId) {
 
 chrome.runtime.onInstalled.addListener(async ({ reason }) => {
   createSwitchMenu();
-  note({ type: 'installed', reason });
   if (reason === 'update') retryUnfound().catch(() => {});
   if (reason !== 'install') return;
   const { setupPending } = await chrome.storage.local.get('setupPending');
@@ -159,7 +144,6 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
   await promptSetup();
 });
 chrome.windows.onCreated.addListener(() => promptSetup(), normalWindows);
-chrome.runtime.onStartup.addListener(layoutChanged);
 // The browser stops an idle worker after half a minute and starts it again
 // for the next event, which a shortcut arriving then waits for; an alarm as
 // often as the browser allows keeps it running, so the overlay opens without
@@ -179,41 +163,12 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     return true;
   }
   if (message?.type === 'openSearchText' && sender.tab && sender.frameId === 0) learnFromPage(sender.url, message.text).catch(() => {});
-  if (message === 'summon' && sender.tab) summon(sender.tab);
   if (message?.type === 'openSetup') openSetup(message.windowId);
   if (message?.type === 'overlayReady') overlayReady(message.tabId, message.frameStarted, message.ready, message.loaded);
   if (message?.type === 'closeTabs') {
     chrome.tabs.get(message.tabId).then((tab) => closeTabs(tab, { othersOnly: message.othersOnly === true })).catch(() => {});
   }
 });
-
-chrome.windows.onCreated.addListener(layoutChanged, normalWindows);
-chrome.windows.onRemoved.addListener((windowId) => note({ type: 'windowRemoved', windowId }), normalWindows);
-chrome.windows.onFocusChanged.addListener((windowId) => {
-  if (windowId !== chrome.windows.WINDOW_ID_NONE) note({ type: 'focused', windowId });
-}, normalWindows);
-
-chrome.tabs.onActivated.addListener(({ tabId }) => note({ type: 'activated', tabId }));
-chrome.tabs.onRemoved.addListener((tabId, { windowId, isWindowClosing }) => {
-  note({ type: 'removed', tabId, windowId, windowClosing: isWindowClosing });
-});
-chrome.tabs.onReplaced.addListener((addedTabId, removedTabId) => {
-  note({ type: 'replaced', addedTabId, removedTabId });
-});
-
-// A placeholder asks for its pin's page; while switched off it opens there.
-async function summon(tab) {
-  if (await switchRead && on) {
-    sync.note({ type: 'summon', tabId: tab.id, windowId: tab.windowId });
-    return;
-  }
-  const pin = readPlaceholderUrl(chrome.runtime.getURL('src/placeholder.html'), tab.url);
-  if (pin) await chrome.tabs.update(tab.id, { url: pin.url });
-}
-chrome.tabs.onCreated.addListener(layoutChanged);
-chrome.tabs.onMoved.addListener(layoutChanged);
-chrome.tabs.onAttached.addListener(layoutChanged);
-chrome.tabs.onUpdated.addListener(layoutChanged);
 
 // The overlay opens on the extension's shortcut, which the user can put on
 // Ctrl+T, and the toolbar button closes the window's other tabs, showing how

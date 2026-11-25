@@ -243,8 +243,7 @@ const NEW_TAB_PAGE = /^[a-z]+:\/\/(newtab|new-tab-page|startpage|vivaldi-webui\/
 
 // Turns a tab that opened on a New Tab page into the overlay as a tab of its
 // own; back is the tab that was selected before it, which Escape returns to.
-// A pinned one is left alone: Chromium puts those where it closed this
-// extension's placeholders, and the pin list unpins them itself.
+// A pinned one is left alone.
 const replacing = new Set();
 // Drawing on any page, which the user can allow from the overlay.
 const PAGES = { origins: ['<all_urls>'] };
@@ -315,8 +314,8 @@ async function removeNewTab(tab) {
 }
 
 // The overlay opens in the page where the browser lets an extension draw
-// into it, and otherwise, as on the browser's own pages, local files without
-// the browser's file access or this extension's placeholders, as a tab of its
+// into it, and otherwise, as on the browser's own pages or local files
+// without the browser's file access, as a tab of its
 // own beside the page, the way a New Tab page opens.
 // The last overlays opened over a page, with how long each step took, kept
 // in local storage so a slow opening on a user's machine can be read back:
