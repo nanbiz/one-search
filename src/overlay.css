@@ -60,9 +60,8 @@ body.tab #box {
 }
 
 /* The box's surface, border and shadow are a layer of their own behind its
-   content, laid over the box, so a change of the box's size animates by
-   scaling this layer alone, which the browser does without laying the page
-   out again on each frame. */
+   content, laid over the box, so a change of the box's size animates on this
+   layer alone. */
 #sheet {
   position: fixed;
   z-index: 0;
@@ -71,8 +70,8 @@ body.tab #box {
   border: 1px solid var(--line);
   border-radius: 15px;
   box-shadow: var(--shadow);
-  transform-origin: 0 0;
   pointer-events: none;
+  contain: strict;
   transition: box-shadow 180ms, border-color 180ms;
 }
 

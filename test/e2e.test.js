@@ -705,6 +705,61 @@ describe('overlay and toolbar button', { skip, concurrency: 1 }, () => {
     for (const id of [a, grouped, current]) assert.equal(await worker.run((tabId) => chrome.tabs.get(tabId).then(() => true, () => false), id), true);
   });
 
+  overlayTest('the shortcut kept pressed leaves the overlay open and opens no tab; pressed again it closes it', async () => {
+    const { worker, browser } = await open();
+    const A = await createWindow(worker, 'A');
+    const [tab] = await tabsIn(worker, A);
+    const first = await pressOverlayShortcut(browser, 'A');
+    await first.press('Escape', { wait: false });
+    await waitFor(async () => !(await overlayOpen(browser)));
+    await new Promise((resolve) => setTimeout(resolve, 1300));
+    // What the browser sends while the key is down: one press, a pause, then
+    // one every few hundredths of a second.
+    const send = (times, pause) => worker.run(async (id, times, pause) => {
+      const tab = await chrome.tabs.get(id);
+      for (let n = 0; n < times; n++) {
+        chrome.commands.onCommand.dispatch('open-overlay', tab);
+        await new Promise((resolve) => setTimeout(resolve, pause));
+      }
+    }, tab.id, times, pause);
+    await send(1, 500);
+    await send(60, 33);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    assert.equal((await tabsIn(worker, A)).length, 1);
+    const frame = await overlayFrame(browser);
+    // Letting the key go and pressing it again closes it.
+    await frame.run(() => window.dispatchEvent(new KeyboardEvent('keyup', { key: 't' })));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await send(1, 0);
+    await waitFor(async () => !(await overlayOpen(browser)));
+    assert.equal((await tabsIn(worker, A)).length, 1);
+  });
+
+  overlayTest('the overlay keeps its size whatever the page\'s zoom, also when that changes while it is open', async () => {
+    const { worker, browser } = await open();
+    const A = await createWindow(worker, 'A');
+    const [tab] = await tabsIn(worker, A);
+    const zoom = (factor) => worker.run((id, value) => chrome.tabs.setZoom(id, value), tab.id, factor);
+    // In screen pixels, which the page's zoom multiplies.
+    const size = (frame) => frame.run(() => {
+      const { width, height } = document.getElementById('bar').getBoundingClientRect();
+      return { viewport: [innerWidth, innerHeight], bar: [width, height].map(Math.round) };
+    });
+    const at100 = await size(await pressOverlayShortcut(browser, 'A'));
+    await zoom(2);
+    const frame = await overlayFrame(browser);
+    const near = (a, b) => a.every((value, index) => Math.abs(value - b[index]) <= 2);
+    let shown;
+    await waitFor(async () => near((shown = await size(frame)).viewport, at100.viewport)).catch(() => assert.deepEqual(shown, at100));
+    assert.ok(near(shown.bar, at100.bar), JSON.stringify({ shown, at100 }));
+    await frame.press('Escape', { wait: false });
+    await waitFor(async () => !(await overlayOpen(browser)));
+    const again = await pressOverlayShortcut(browser, 'A');
+    await waitFor(async () => near((shown = await size(again)).viewport, at100.viewport)).catch(() => assert.deepEqual(shown, at100));
+    assert.ok(near(shown.bar, at100.bar), JSON.stringify({ shown, at100 }));
+    await zoom(1);
+  });
+
   overlayTest('a click on the toolbar button opens the overlay over the page, and nothing while switched off', async () => {
     const { worker, browser } = await open();
     const A = await createWindow(worker, 'A');

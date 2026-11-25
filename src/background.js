@@ -170,7 +170,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
 // Ctrl+T, and on a click on the toolbar button.
 chrome.commands.onCommand.addListener(async (command, tab) => {
   if (command !== 'open-overlay') return;
-  if (await switchRead && on) toggleOverlay(tab);
+  if (await switchRead && on) toggleOverlay(tab, { shortcut: true });
   else await chrome.tabs.create({ windowId: tab?.windowId });
 });
 chrome.action.onClicked.addListener(async (tab) => {

@@ -43,7 +43,7 @@ async function openOverlayTab(windowId, open) {
 // Opens the overlay over the page in the tab, centred over the page dimmed and
 // blurred, or closes it where it is open already. Runs in the
 // page, so it is self-contained.
-function toggleInPage(path, query, openOnly = false, deadline = 0) {
+function toggleInPage(path, query, openOnly = false, deadline = 0, zoom = 1, shortcut = false) {
   const id = 'one-search-overlay';
   const open = document.getElementById(id);
   // A page that got to this after the worker stopped waiting for it has had
@@ -51,6 +51,12 @@ function toggleInPage(path, query, openOnly = false, deadline = 0) {
   if (!open && deadline && Date.now() > deadline) return 'late';
   if (open) {
     if (openOnly) return 'open';
+    // A shortcut kept pressed arrives again and again. The overlay closes on
+    // a press of its own, told by the key's release before it; the release
+    // can go unseen, so after a pause a press counts as one anyway.
+    const held = shortcut && !open.dataset.released && Date.now() - Number(open.dataset.pressed) < 1200;
+    open.dataset.pressed = String(Date.now());
+    if (held) return 'held';
     // The dialog's close event runs the cleanup its opening set up; an
     // overlay left without one is only removed.
     open.dispatchEvent(new Event('close'));
@@ -69,13 +75,18 @@ function toggleInPage(path, query, openOnly = false, deadline = 0) {
     + 'border:0;margin:0;padding:0;background:transparent;color-scheme:light dark';
   dialog.tabIndex = -1;
   dialog.className = 'shown';
+  dialog.dataset.pressed = String(Date.now());
+  const onRelease = () => {
+    dialog.dataset.released = '1';
+  };
+  window.addEventListener('keyup', onRelease, true);
   const backdrop = new CSSStyleSheet();
   backdrop.replaceSync(`#${id}:not([open]){display:none!important}#${id}::backdrop{background:transparent}#${id}.shown::backdrop{background:rgb(0 0 0 / 0.45);backdrop-filter:blur(3px)}`);
   document.adoptedStyleSheets = [...document.adoptedStyleSheets, backdrop];
   const frame = document.createElement('iframe');
   frame.src = `${chrome.runtime.getURL(path)}?${query}`;
   frame.allow = 'clipboard-write';
-  frame.style.cssText = 'all:initial;position:absolute;inset:0;display:block;width:100%;height:100%;border:0;margin:0;padding:0;color-scheme:light dark;opacity:0';
+  frame.style.cssText = 'all:initial;position:absolute;left:0;top:0;display:block;border:0;margin:0;padding:0;color-scheme:light dark;opacity:0';
   // The overlay's bar is drawn at once in the page, with what is typed in
   // it, so the overlay appears with the key press however long its own frame
   // takes to load on a busy page; the frame takes its place once it has drawn
@@ -83,10 +94,11 @@ function toggleInPage(path, query, openOnly = false, deadline = 0) {
   // and styles, and matches overlay.css's box and bar, with search.svg written
   // out in it.
   const shell = document.createElement('div');
-  shell.style.cssText = 'all:initial;position:absolute;inset:0';
+  shell.style.cssText = 'all:initial;position:absolute;left:0;top:0';
   const shellRoot = shell.attachShadow({ mode: 'closed' });
   shellRoot.innerHTML = '<style>'
-    + '.box{position:fixed;left:50%;transform:translateX(-50%);top:max(24px,calc(50vh - 180px));width:min(66.6vw,750px);'
+    + '.stage{position:absolute;inset:0;display:flex;justify-content:center;align-items:flex-start}'
+    + '.box{position:relative;top:max(24px,calc(50% - 180px));width:min(66.6%,750px);'
     + 'background:#fafafa;color:#27272a;border:1px solid #e4e4e7;border-radius:15px;box-shadow:0 16px 60px rgb(0 0 0 / 0.28);'
     + 'font:15px system-ui,sans-serif;overflow:hidden}'
     + '.bar{display:flex;align-items:center;gap:12px;padding:0 18px}'
@@ -94,9 +106,16 @@ function toggleInPage(path, query, openOnly = false, deadline = 0) {
     + '.text{flex:1;min-width:0;padding:16px 0;font-size:1.15em;white-space:pre;overflow:hidden}'
     + '.text:empty::before{content:"Search or enter address";color:#71717a}'
     + '@media (prefers-color-scheme:dark){.box{background:#1f1f23;color:#e4e4e7;border-color:#34343a}.text:empty::before{color:#8b8b93}}'
-    + '</style><div class="box"><div class="bar">'
+    + '</style><div class="stage"><div class="box"><div class="bar">'
     + '<svg viewBox="0 0 24 24" fill="none" stroke="#8b8b93" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>'
-    + '<span class="text"></span></div></div>';
+    + '<span class="text"></span></div></div></div>';
+  // Both are drawn at the size they have on a page that is not zoomed.
+  const unzoom = (factor) => {
+    for (const layer of [shell, frame]) {
+      Object.assign(layer.style, { width: `${factor * 100}%`, height: `${factor * 100}%`, transform: factor === 1 ? 'none' : `scale(${1 / factor})`, transformOrigin: '0 0' });
+    }
+  };
+  unzoom(zoom);
   const shellText = shellRoot.querySelector('.text');
   let ready = false;
   const show = (shown) => {
@@ -173,6 +192,7 @@ function toggleInPage(path, query, openOnly = false, deadline = 0) {
       letGo();
     }
     release();
+    window.removeEventListener('keyup', onRelease, true);
     window.removeEventListener('message', onMessage);
     document.removeEventListener('fullscreenchange', onFullscreenChange);
     // The keyboard comes back to the page before the frame that has it goes,
@@ -203,6 +223,8 @@ function toggleInPage(path, query, openOnly = false, deadline = 0) {
       show(false);
       requestAnimationFrame(() => requestAnimationFrame(() => frame.contentWindow?.postMessage('one-search:hidden', '*')));
     }
+    if (event.data === 'one-search:released') onRelease();
+    if (event.data?.oneSearchZoom > 0) unzoom(event.data.oneSearchZoom);
     if (event.data === 'one-search:close') close();
   }
   window.addEventListener('message', onMessage);
@@ -265,7 +287,7 @@ export async function replaceNewTab(tab, url, back, { found = false } = {}) {
       const page = await chrome.tabs.get(back);
       if (page.windowId === tab.windowId) {
         const frameQuery = new URLSearchParams({ mode: 'frame', tab: page.id, window: page.windowId }).toString();
-        await chrome.scripting.executeScript({ target: { tabId: page.id }, func: toggleInPage, args: [overlayPath, frameQuery, true], injectImmediately: true });
+        await chrome.scripting.executeScript({ target: { tabId: page.id }, func: toggleInPage, args: [overlayPath, frameQuery, true, 0, await zoomOf(page.id)], injectImmediately: true });
         await chrome.tabs.update(page.id, { active: true });
         await removeNewTab(tab);
         return;
@@ -371,8 +393,24 @@ function closeInPage() {
   document.getElementById('one-search-overlay')?.dispatchEvent(new Event('close'));
 }
 
-export async function toggleOverlay(tab) {
+// How much the page is zoomed beyond the browser's default.
+async function zoomOf(tabId) {
+  const [factor, settings] = await Promise.all([chrome.tabs.getZoom(tabId), chrome.tabs.getZoomSettings(tabId)]).catch(() => [1, {}]);
+  return factor / (settings.defaultZoomFactor || 1);
+}
+
+// A shortcut kept pressed arrives every few hundredths of a second, after a
+// first pause that a press of its own can have too.
+const REPEAT_MS = 120;
+const FIRST_REPEAT_MS = 1200;
+let shortcutTab = null;
+
+export async function toggleOverlay(tab, { shortcut = false } = {}) {
+  const sincePress = Date.now() - overlayCommandAt;
+  const repeated = shortcut && tab && shortcutTab === tab.id && sincePress < FIRST_REPEAT_MS;
   overlayCommandAt = Date.now();
+  shortcutTab = tab?.id;
+  if (shortcut && sincePress < REPEAT_MS) return;
   // A New Tab page being turned into the overlay gets it that way; no
   // extension may draw on it, so a second overlay would open beside that one.
   if (!tab || isOverlayTab(tab) || replacing.has(tab.id) || openingIn.has(tab.windowId)) return;
@@ -383,13 +421,16 @@ export async function toggleOverlay(tab) {
     // that draws the overlay only once it gets to it; past a moment the
     // overlay opens as a tab over a picture of the page instead. In full
     // screen it waits, as a tab would end the full screen.
-    const window = await chrome.windows.get(tab.windowId).catch(() => null);
+    const [window, zoom] = await Promise.all([chrome.windows.get(tab.windowId).catch(() => null), zoomOf(tab.id)]);
     const deadline = window?.state === 'fullscreen' ? 0 : Date.now() + PAGE_ANSWER_MS;
-    const injection = chrome.scripting.executeScript({ target: { tabId: tab.id }, func: toggleInPage, args: [overlayPath, query, false, deadline], injectImmediately: true });
+    const injection = chrome.scripting.executeScript({ target: { tabId: tab.id }, func: toggleInPage, args: [overlayPath, query, false, deadline, zoom, shortcut], injectImmediately: true });
     const answer = await (deadline
       ? Promise.race([injection, new Promise((resolve) => setTimeout(resolve, PAGE_ANSWER_MS, 'late'))])
       : injection);
     const [{ result } = {}] = answer === 'late' ? [{ result: 'late' }] : answer;
+    // A page busy opening the overlay for the press before answers a
+    // repetition of it late; the overlay is on its way there.
+    if (result === 'late' && repeated) return;
     if (result === 'late') {
       noteTiming({ at: new Date(key).toISOString(), site: hostnameOf(tab.url), workerAge: key - workerStarted, late: true });
       const overlayTab = await openOverPicture(tab);

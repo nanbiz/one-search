@@ -1,5 +1,6 @@
 import { containsWords, matchScore } from './match.js';
 import { browserPages, quickActions } from './quick-actions.js';
+import { chatSearch } from './chat-search.js';
 import { isCtrlT, overlayShortcut } from './shortcut.js';
 
 // The overlay opened instead of a new tab: type an address, a search or the
@@ -184,7 +185,7 @@ async function readSearchAddresses() {
     fetch(chrome.runtime.getURL('src/site-search.json')).then((response) => response.json()).catch(() => ({})),
     chrome.storage.local.get('learnedSearch'),
   ]);
-  searchAddresses = { ...learnedSearch, ...shipped };
+  searchAddresses = { ...learnedSearch, ...shipped, ...chatSearch };
   if (!numberMode && !siteSearch) render();
 }
 
@@ -269,6 +270,14 @@ function addressOf(text) {
   if (/^(localhost|\d{1,3}(\.\d{1,3}){3})(:\d+)?$/i.test(host)) return `http://${value}`;
   if (/^[^.:]+(\.[^.:]+)*\.[a-z]{2,}(:\d+)?$/i.test(host) || /^\[[0-9a-f:]+\](:\d+)?$/i.test(host)) return `https://${value}`;
   return null;
+}
+
+// The page's zoom leaves the overlay's size alone, also when it changes while
+// the overlay is open.
+if (mode === 'frame') {
+  chrome.tabs.onZoomChange.addListener(({ tabId, newZoomFactor, zoomSettings }) => {
+    if (tabId === Number(params.get('tab'))) window.parent.postMessage({ oneSearchZoom: newZoomFactor / (zoomSettings.defaultZoomFactor || 1) }, '*');
+  });
 }
 
 function close() {
@@ -683,9 +692,9 @@ let altEntered = false;
 
 // A change of the box moves what stays from where it was to where it goes,
 // and fades in what is new: each tab's row slides to its new place and the
-// box's surface scales to its new size. Only position, scale and opacity
-// move, which the browser animates without laying the page out again on each
-// frame, so the motion stays smooth while the overlay's process is busy.
+// box's surface grows to its new size, so its corners and border keep their
+// shape, which scaling it would squash. The surface is a layer of its own that
+// nothing else is laid out by, so each frame of it costs little.
 const GLIDE = { duration: 180, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' };
 const sheet = document.getElementById('sheet');
 
@@ -706,10 +715,8 @@ function glide(change) {
   if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   const after = box.getBoundingClientRect();
   if (after.width > 0 && after.height > 0 && (before.width !== after.width || before.height !== after.height || before.top !== after.top)) {
-    sheet.animate([
-      { transform: `translate(${before.left - after.left}px, ${before.top - after.top}px) scale(${before.width / after.width}, ${before.height / after.height})` },
-      { transform: 'none' },
-    ], GLIDE);
+    const place = ({ left, top, width, height }) => ({ left: `${left}px`, top: `${top}px`, width: `${width}px`, height: `${height}px` });
+    sheet.animate([place(before), place(after)], GLIDE);
   }
   for (const row of resultsList.querySelectorAll('.row')) {
     const was = rows.get(row.dataset.key);
@@ -829,6 +836,12 @@ document.addEventListener('keydown', (event) => {
 // Alt let go alone keeps the number mode its press brought, or, pressed in
 // number mode, turns typing back on; let go after another key that neither
 // picked a tab nor moved to one, typing comes back.
+// The page tells a press of the shortcut from its repetitions by the release
+// of a key, which reaches whichever of the two has the keyboard.
+window.addEventListener('keyup', () => {
+  if (mode === 'frame') window.parent.postMessage('one-search:released', '*');
+}, true);
+
 document.addEventListener('keyup', (event) => {
   if (event.key !== 'Alt') return;
   event.preventDefault();

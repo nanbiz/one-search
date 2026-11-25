@@ -1,0 +1,9 @@
+{
+  "intro": { "title": "One Search To Rule Them All", "subtitle": "Spotlight-like search for your browser" },
+  "open": { "title": "Press Ctrl+T", "subtitle": "The search opens over your page, no tab opens until you pick" },
+  "tabs": { "title": "Switch to a tab", "subtitle": "Type part of its title" },
+  "site": { "title": "Search one site", "subtitle": "Type its name, press Tab" },
+  "alt": { "title": "Every tab, one key", "subtitle": "Hold or tap Alt" },
+  "actions": { "title": "Run an action", "subtitle": "By its name" },
+  "outro": { "title": "One Search To Rule Them All", "subtitle": "Free and open source" }
+}

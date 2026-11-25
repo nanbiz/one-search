@@ -2,6 +2,8 @@
 // learns from the OpenSearch descriptions of the sites visited, kept beside
 // the list shipped with the extension.
 
+import { chatSearch } from './chat-search.js';
+
 const PAGES = { origins: ['<all_urls>'] };
 const SCRIPT = { id: 'learn-search', js: ['src/learn-search.js'], matches: ['http://*/*', 'https://*/*'], runAt: 'document_idle' };
 // Sites learned, at most this many, the oldest going first; a site whose
@@ -99,7 +101,7 @@ export async function learnSearch(pageUrl, href) {
   }
   if (!/^https?:$/.test(description.protocol) || !sameSite(hostOf(description.href), site)) return null;
   shipped ??= await fetch(chrome.runtime.getURL('src/site-search.json')).then((response) => response.json()).catch(() => ({}));
-  if (shipped[site]) return null;
+  if (shipped[site] || chatSearch[site]) return null;
   const { learnedSearch = {} } = await chrome.storage.local.get('learnedSearch');
   if (site in learnedSearch) return null;
   tried.add(site);
