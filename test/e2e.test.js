@@ -1258,27 +1258,23 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
   overlayTest('the arrows start from the current tab, also with Alt held, and keep the row they reached once Alt is let go', async () => {
     const { worker, browser } = await open();
     const A = await createWindow(worker, 'A');
-    const before = await openTab(worker, A, 'before', { active: false, index: 0 });
-    const below = await openTab(worker, A, 'below', { active: false, index: 2 });
-    const last = await openTab(worker, A, 'last', { active: false, index: 3 });
-    for (const [id, title] of [[before, 'before'], [below, 'below'], [last, 'last']]) await waitForTitle(worker, id, title);
+    for (const name of ['one', 'two', 'three']) await waitForTitle(worker, await openTab(worker, A, name, { active: false }), name);
+    // Vivaldi opens tabs where it likes, so the order is read.
+    const order = (await tabsIn(worker, A)).map((tab) => tab.title);
+    const from = (step) => order[(order.indexOf('A') + step + order.length) % order.length];
     await focus(worker, A);
     const selected = async (frame) => (await overlayResults(frame)).find((row) => row.selected)?.title;
     // Nothing typed and no Alt: one up is the tab above.
     const frame = await pressOverlayShortcut(browser, 'A');
     await waitFor(async () => (await overlayResults(frame)).length === 4);
     await frame.press('ArrowUp');
-    await waitFor(async () => (await selected(frame)) === 'before');
+    await waitFor(async () => (await selected(frame)) === from(-1));
     await frame.press('Escape', { wait: false });
     await waitFor(async () => !(await overlayOpen(browser)));
     // Alt held: one down is the tab below, the next the one after it.
     const again = await pressOverlayShortcut(browser, 'A');
     await waitFor(async () => (await overlayResults(again)).length === 4);
     await waitFor(() => again.run(() => document.activeElement?.id === 'query' && document.hasFocus()));
-    await again.run(() => {
-      window.seen = [];
-      for (const type of ['keydown', 'keyup', 'blur']) window.addEventListener(type, (event) => window.seen.push(`${type} ${event.key ?? ''}${event.altKey ? ' alt' : ''}`), true);
-    });
     const key = (type, name, code, number, modifiers) => current.browser.connection.send('Input.dispatchKeyEvent', {
       type, key: name, code, modifiers, windowsVirtualKeyCode: number, nativeVirtualKeyCode: number,
     }, again.sessionId);
@@ -1288,16 +1284,15 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
     };
     await key('rawKeyDown', 'Alt', 'AltLeft', 18, 1);
     await down();
-    await waitFor(async () => (await selected(again)) === 'below')
-      .catch(async (error) => assert.fail(`${error.message}\n${JSON.stringify([await again.run(() => window.seen), await overlayResults(again)])}`));
+    await waitFor(async () => (await selected(again)) === from(1));
     await down();
-    await waitFor(async () => (await selected(again)) === 'last');
+    await waitFor(async () => (await selected(again)) === from(2));
     await key('keyUp', 'Alt', 'AltLeft', 18, 0);
     await new Promise((resolve) => setTimeout(resolve, 300));
-    assert.equal(await selected(again), 'last');
+    assert.equal(await selected(again), from(2));
     assert.equal(await again.run(() => document.getElementById('box').classList.contains('numbers')), true);
     await again.press('Enter', { wait: false });
-    await waitFor(() => worker.run(async (id) => (await chrome.tabs.get(id)).active, last));
+    await waitFor(async () => (await tabsIn(worker, A)).some((tab) => tab.active && tab.title === from(2)));
   });
 
   overlayTest('a tap on Alt turns typing off, and a tab\'s key alone picks it; Alt again turns typing back on with the text kept, and Escape closes', async () => {
