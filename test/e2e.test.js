@@ -1274,6 +1274,11 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
     // Alt held: one down is the tab below, the next the one after it.
     const again = await pressOverlayShortcut(browser, 'A');
     await waitFor(async () => (await overlayResults(again)).length === 4);
+    await waitFor(() => again.run(() => document.activeElement?.id === 'query' && document.hasFocus()));
+    await again.run(() => {
+      window.seen = [];
+      for (const type of ['keydown', 'keyup', 'blur']) window.addEventListener(type, (event) => window.seen.push(`${type} ${event.key ?? ''}${event.altKey ? ' alt' : ''}`), true);
+    });
     const key = (type, name, code, number, modifiers) => current.browser.connection.send('Input.dispatchKeyEvent', {
       type, key: name, code, modifiers, windowsVirtualKeyCode: number, nativeVirtualKeyCode: number,
     }, again.sessionId);
@@ -1283,7 +1288,8 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
     };
     await key('rawKeyDown', 'Alt', 'AltLeft', 18, 1);
     await down();
-    await waitFor(async () => (await selected(again)) === 'below');
+    await waitFor(async () => (await selected(again)) === 'below')
+      .catch(async (error) => assert.fail(`${error.message}\n${JSON.stringify([await again.run(() => window.seen), await overlayResults(again)])}`));
     await down();
     await waitFor(async () => (await selected(again)) === 'last');
     await key('keyUp', 'Alt', 'AltLeft', 18, 0);
