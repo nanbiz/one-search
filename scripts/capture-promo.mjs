@@ -21,10 +21,10 @@ const TABS = [
   'https://developer.mozilla.org/en-US/docs/Web/API/Window',
   'https://docs.python.org/3/tutorial/index.html',
   'https://nodejs.org/docs/latest/api/',
-  'https://en.wikipedia.org/wiki/Web_browser',
+  'https://www.typescriptlang.org/docs/handbook/intro.html',
   'https://www.w3.org/TR/css/',
 ];
-const VISITED = 'https://developer.mozilla.org/en-US/';
+const VISITED = 'https://www.openstreetmap.org/';
 
 const captions = JSON.parse(readFileSync(join(root, 'store', 'promo-captions.json'), 'utf8'));
 const promoPath = join(root, 'dist', 'promo.mp4');
@@ -80,6 +80,9 @@ async function main() {
     recordingStart = Date.now();
     try {
       await record(browser, worker);
+    } catch (error) {
+      await stage.screenshot(join(root, 'dist', 'promo-failed.png'));
+      throw error;
     } finally {
       await stopRecording();
     }
@@ -133,24 +136,24 @@ async function record(browser, worker) {
   await sleep(1500);
 
   showCaption('tabs');
-  type('wikipedia');
+  type('handbook');
   await sleep(900);
   await press('Down', '↓');
   await sleep(700);
   await press('Return', 'Enter');
-  await arrive('wikipedia.org');
+  await arrive('typescriptlang.org');
   await sleep(1300);
 
   showCaption('site');
   await open();
-  type('dev');
+  type('openstr');
   await sleep(1300);
   await press('Tab', 'Tab');
   await sleep(1000);
-  type('flexbox');
+  type('berlin');
   await sleep(900);
   await press('Return', 'Enter');
-  await arrive('flexbox');
+  await arrive('openstreetmap.org');
   await sleep(1800);
 
   showCaption('alt');
