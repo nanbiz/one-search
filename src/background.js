@@ -1,5 +1,6 @@
 import { isCtrlT, overlayShortcut } from './shortcut.js';
 import { closeOtherTabs, overlayReady, replaceNewTab, toggleOverlay } from './tools.js';
+import { learnTextBox, pageLoaded, tabGone, typeInto } from './type-into-worker.js';
 import { keepLearningSearch, learnFromPage, learnSearch, retryUnfound } from './site-search.js';
 
 const normalWindows = { windowTypes: ['normal'] };
@@ -159,6 +160,8 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     return true;
   }
   if (message?.type === 'openSearchText' && sender.tab && sender.frameId === 0) learnFromPage(sender.url, message.text).catch(() => {});
+  if (message?.type === 'textBox' && sender.tab && sender.frameId === 0) learnTextBox(sender.url).catch(() => {});
+  if (message?.type === 'typeInto' && sender.url?.startsWith(chrome.runtime.getURL(''))) typeInto(message).catch(() => {});
   if (message?.type === 'openSetup') openSetup(message.windowId);
   if (message?.type === 'overlayReady') overlayReady(message.tabId, message.frameStarted, message.ready, message.loaded);
   if (message?.type === 'closeOtherTabs') {
@@ -195,6 +198,10 @@ chrome.tabs.onCreated.addListener((tab) => {
 chrome.tabs.onUpdated.addListener((tabId, { url, pinned }, tab) => {
   if (on && (url || pinned === false)) replaceNewTab(tab, tab.pendingUrl || tab.url, selectedBefore(tab));
 });
+chrome.tabs.onUpdated.addListener((tabId, { status }, tab) => {
+  if (status === 'complete') pageLoaded(tabId, tab.url).catch(() => {});
+});
+chrome.tabs.onRemoved.addListener((tabId) => tabGone(tabId));
 // New Tab pages opened while the worker was not running, as when the browser
 // starts or the extension reloads, are turned once it runs.
 switchRead.then(async () => {

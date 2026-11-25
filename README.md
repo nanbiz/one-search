@@ -20,7 +20,7 @@ It opens with **Ctrl+Shift+Space**, or with **Ctrl+T** once you [put it there](#
 
 - **Tabs:** with nothing typed it lists the window's tabs. Type part of a title or address to switch to a tab in any window.
 - **Addresses and searches:** type one and press Enter. Searches go to your browser's default search engine.
-- **One site:** pick a site that has its own search, press Tab and search it directly.
+- **One site:** pick a site that has its own search, press Tab and search it directly. On a site without one whose page has a text box, such as a chat, Tab types your text into that box once you allow it for the site; you send it yourself.
 - **History and bookmarks:** click **Include** once. Sites you visited then come first as you type their name (*y* offers youtube.com).
 - **Actions:** type *pin tab*, *duplicate*, *reload*, *copy current url*, *close other tabs*, *private window*, *print* and more.
 - **Browser pages:** type *downloads*, *settings*, *extensions*, *passwords* and more.
@@ -70,7 +70,7 @@ Pinned tabs are no longer shared between windows; they work as your browser hand
 - `storage` keeps settings, the searches of sites and unfinished text.
 - `alarms` keeps the extension ready, so the search opens without a delay.
 - `contextMenus` adds **Close other tabs** and **On** to the button's right-click menu.
-- Asked for only when you allow them: `history` and `bookmarks` to search them, and access to all sites to open over the page for every new tab and to learn the searches of sites you visit.
+- Asked for only when you allow them: `history` and `bookmarks` to search them, and access to all sites to open over the page for every new tab to learn the searches and text boxes of sites you visit, and to type into the sites you allow it on.
 
 Nothing is collected; see [PRIVACY.md](PRIVACY.md).
 

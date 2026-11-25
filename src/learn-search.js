@@ -12,3 +12,15 @@
     .then((response) => (response.ok ? response.text() : ''), () => '');
   chrome.runtime.sendMessage({ type: 'openSearchText', text }).catch(() => {});
 })();
+
+// Says that the page has a main text box, which Tab in the overlay can type
+// into. An application shows its box some time after its page has loaded.
+(async () => {
+  for (let attempt = 0; attempt < 12 && document.visibilityState !== 'hidden'; attempt++) {
+    if (globalThis.oneSearchTextBox()) {
+      chrome.runtime.sendMessage({ type: 'textBox' }).catch(() => {});
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+})();

@@ -5,7 +5,7 @@
 import { chatSearch } from './chat-search.js';
 
 const PAGES = { origins: ['<all_urls>'] };
-const SCRIPT = { id: 'learn-search', js: ['src/learn-search.js'], matches: ['http://*/*', 'https://*/*'], runAt: 'document_idle' };
+const SCRIPT = { id: 'learn-search', js: ['src/text-box.js', 'src/learn-search.js'], matches: ['http://*/*', 'https://*/*'], runAt: 'document_idle' };
 // Sites learned, at most this many, the oldest going first; a site whose
 // description gives no search of its own is kept as an empty address, so it
 // is not read again.
@@ -33,6 +33,8 @@ function hostOf(url) {
 export async function keepLearningSearch() {
   const allowed = await chrome.permissions.contains(PAGES).catch(() => false);
   const registered = (await chrome.scripting.getRegisteredContentScripts({ ids: [SCRIPT.id] })).length > 0;
+  // A registration outlives an update, with the files of the version before.
+  if (allowed && registered) await chrome.scripting.updateContentScripts([SCRIPT]);
   if (allowed && !registered) await chrome.scripting.registerContentScripts([SCRIPT]);
   if (!allowed && registered) await chrome.scripting.unregisterContentScripts({ ids: [SCRIPT.id] });
 }

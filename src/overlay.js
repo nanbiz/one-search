@@ -179,29 +179,41 @@ function recalled(text) {
 // searches it, {{{s}}} standing for the search. Read once the overlay shows,
 // as the list is large.
 let searchAddresses = null;
+// Sites without one whose page has a main text box, which the overlay can type
+// into, and those of them the user allowed it on.
+let textBoxes = {};
+let typeAllowed = {};
 
 async function readSearchAddresses() {
-  const [shipped, { learnedSearch = {} }] = await Promise.all([
+  const [shipped, { learnedSearch = {}, ...typing }] = await Promise.all([
     fetch(chrome.runtime.getURL('src/site-search.json')).then((response) => response.json()).catch(() => ({})),
-    chrome.storage.local.get('learnedSearch'),
+    chrome.storage.local.get(['learnedSearch', 'textBoxes', 'typeAllowed']),
   ]);
+  textBoxes = await chrome.permissions.contains(PAGES).catch(() => false) ? typing.textBoxes ?? {} : {};
+  typeAllowed = typing.typeAllowed ?? {};
   searchAddresses = { ...learnedSearch, ...shipped, ...chatSearch };
   if (!numberMode && !siteSearch) render();
 }
 
 function searchAddressOf(url) {
   const host = hostOf(url ?? '');
-  return host && searchAddresses ? searchAddresses[host] ?? null : null;
+  return host && searchAddresses ? searchAddresses[host] || null : null;
+}
+
+function takesTab(item) {
+  return item?.kind === 'Site' && Boolean(searchAddressOf(item.url) || textBoxes[hostOf(item.url)]);
 }
 
 // Searching one site: Tab on a site that has a search of its own puts the
-// site in the field, and what is typed then searches it.
+// site in the field, and what is typed then searches it. On a site that has
+// none, but a page with a main text box, it is typed into that page.
 let siteSearch = null;
 
 function enterSiteSearch(item) {
   siteSearch = { host: hostOf(item.url), url: item.url, address: searchAddressOf(item.url) };
   chip.replaceChildren(iconImage(item.url, null), Object.assign(document.createElement('span'), { textContent: siteSearch.host }));
   chip.hidden = false;
+  offerTyping();
   query.placeholder = '';
   uncomplete();
   typed = '';
@@ -212,6 +224,7 @@ function enterSiteSearch(item) {
 
 function leaveSiteSearch() {
   siteSearch = null;
+  offerTyping();
   chip.hidden = true;
   query.placeholder = 'Search or enter address';
   selected = 0;
@@ -220,6 +233,17 @@ function leaveSiteSearch() {
 
 function siteSearchItems(text) {
   if (!text.trim()) return [];
+  if (!siteSearch.address) {
+    if (!typeAllowed[siteSearch.host]) return [];
+    return [{
+      title: text.trim(),
+      icon: chrome.runtime.getURL('src/text-cursor-input.svg'),
+      glyph: true,
+      kind: 'Type into page',
+      site: siteSearch.host,
+      pick: () => chrome.runtime.sendMessage({ type: 'typeInto', site: siteSearch.host, text: text.trim(), ...(replacing ? { tabId: target.id } : { windowId: target.windowId }) }),
+    }];
+  }
   const url = siteSearch.address.replaceAll('{{{s}}}', encodeURIComponent(text.trim()));
   return [{ title: text.trim(), url: siteSearch.url, favIconUrl: null, kind: 'Search', site: siteSearch.host, pick: () => openAddress(url) }];
 }
@@ -511,7 +535,7 @@ function render() {
     const isSelected = index === selected && (!listingTabs() || keyboardOnTabs);
     element.classList.toggle('selected', isSelected);
     // The selected site that has a search of its own takes Tab to search it.
-    if (isSelected && item.kind === 'Site' && searchAddressOf(item.url)) {
+    if (isSelected && takesTab(item)) {
       const key = document.createElement('span');
       key.className = 'tabkey';
       key.append(Object.assign(document.createElement('img'), { src: 'tab.svg', alt: '', className: 'glyph' }), 'Tab');
@@ -802,7 +826,7 @@ document.addEventListener('keydown', (event) => {
   }
   if (key === 'Tab' && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && !numberMode && !siteSearch) {
     const item = items[selected];
-    if (item?.kind === 'Site' && searchAddressOf(item.url)) {
+    if (takesTab(item)) {
       event.preventDefault();
       enterSiteSearch(item);
       return;
@@ -881,6 +905,28 @@ window.addEventListener('focus', () => query.focus());
 function isFileAddress(text) {
   return /^file:/i.test(addressOf(text) ?? '');
 }
+
+// Once per site the user allows the overlay to type into its page.
+function offerTyping() {
+  const offer = document.getElementById('typing');
+  offer.hidden = !siteSearch || Boolean(siteSearch.address) || typeAllowed[siteSearch.host] === true;
+  if (!offer.hidden) offer.querySelector('span').textContent = `Type into ${siteSearch.host}`;
+}
+for (const button of document.querySelectorAll('#typing button')) {
+  button.addEventListener('mousedown', (event) => event.preventDefault());
+}
+document.getElementById('typing-allow').addEventListener('click', async () => {
+  const { host } = siteSearch;
+  typeAllowed = { ...(await chrome.storage.local.get('typeAllowed')).typeAllowed, [host]: true };
+  await chrome.storage.local.set({ typeAllowed });
+  offerTyping();
+  render();
+  query.focus();
+});
+document.getElementById('typing-dismiss').addEventListener('click', () => {
+  leaveSiteSearch();
+  query.focus();
+});
 
 const filesOffer = document.getElementById('files');
 const filesPage = `chrome://extensions/?id=${chrome.runtime.id}`;

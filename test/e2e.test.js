@@ -39,6 +39,23 @@ const server = createServer((request, response) => {
       : '<!doctype html><title>Sign in</title><form>login</form>');
     return;
   }
+  // An application that shows its box some time after loading, replaces it
+  // once and empties it, as one taking over a page the server drew does; and
+  // ones whose page has no box or asks for a password.
+  if (name === 'ask' || name === 'full') {
+    response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    response.end(`<!doctype html><title>${name}</title><div id="app"></div><script>
+      const draw = () => { app.innerHTML = '<div role="textbox" contenteditable="true" style="width:400px;height:60px;border:1px solid">${name === 'full' ? 'a draft' : ''}</div>'; };
+      setTimeout(draw, 800); setTimeout(() => { if ('${name}' === 'ask') draw(); }, 1600);
+      window.sent = 0; addEventListener('keydown', (event) => { if (event.key === 'Enter') window.sent += 1; });
+    </script>`);
+    return;
+  }
+  if (name === 'signin') {
+    response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    response.end('<!doctype html><title>signin</title><textarea style="width:300px;height:60px"></textarea><input type="password" style="width:200px;height:30px">');
+    return;
+  }
   response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   response.end(`<!doctype html><title>${name}</title><h1>${name}</h1>`);
 });
@@ -1131,6 +1148,73 @@ describe('overlay and toolbar button', { skip, concurrency: 1 }, () => {
         return learned !== undefined;
       });
       assert.equal(learned, `${origin}/find?q={{{s}}}&ref=opensearch`);
+    } finally {
+      await rm(copy, { recursive: true, force: true });
+    }
+  });
+
+  overlayTest('a site without a search of its own whose page has a text box is typed into once allowed, and the user sends it', async () => {
+    const copy = await mkdtemp(join(tmpdir(), 'one-search-type-'));
+    try {
+      await cp(extensionPath, copy, { recursive: true, filter: (path) => !/\/(node_modules|dist|\.git)(\/|$)/.test(path) });
+      const manifest = JSON.parse(await readFile(join(copy, 'manifest.json'), 'utf8'));
+      manifest.host_permissions = ['<all_urls>'];
+      manifest.permissions.push('history', 'bookmarks');
+      delete manifest.optional_host_permissions;
+      delete manifest.optional_permissions;
+      await writeFile(join(copy, 'manifest.json'), JSON.stringify(manifest));
+      const { worker, browser } = await open({ extension: copy });
+      await waitFor(() => worker.run(async () => (await chrome.scripting.getRegisteredContentScripts()).length > 0));
+      const boxes = () => worker.run(async () => (await chrome.storage.local.get('textBoxes')).textBoxes?.['127.0.0.1']);
+      const A = await createWindow(worker, 'A');
+      // A page asking for a password has no box to type into.
+      await openTab(worker, A, 'signin', { active: true });
+      await new Promise((resolve) => setTimeout(resolve, 2500));
+      assert.equal(await boxes(), undefined);
+      const ask = await openTab(worker, A, 'ask', { active: true });
+      await waitFor(async () => (await boxes()) === pageUrl('ask'));
+      await worker.run((id) => chrome.tabs.remove(id), ask);
+      await worker.run((url) => chrome.history.addUrl({ url }), pageUrl('ask'));
+      await worker.run(async (url) => { const [tab] = await chrome.tabs.query({ url }); await chrome.tabs.update(tab.id, { active: true }); }, pageUrl('A'));
+      const enter = async () => {
+        const frame = await pressOverlayShortcut(browser, 'A');
+        await typeInto(frame, '127');
+        await waitFor(() => frame.run(() => document.querySelector('#results .row.selected .tabkey') !== null));
+        await frame.press('Tab');
+        await waitFor(() => frame.run(() => !document.getElementById('chip').hidden));
+        return frame;
+      };
+      let frame = await enter();
+      // Nothing to pick until the user allows it, once.
+      await typeInto(frame, 'what is a spoon');
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      assert.equal((await overlayResults(frame)).length, 0);
+      assert.equal(await frame.run(() => document.querySelector('#typing span').textContent), 'Type into 127.0.0.1');
+      await frame.run(() => document.getElementById('typing-allow').click());
+      await waitFor(async () => (await overlayResults(frame))[0]?.kind === 'Type into page');
+      assert.equal(await frame.run(() => document.getElementById('typing').hidden), true);
+      await frame.press('Enter', { wait: false });
+      const page = await browser.page(pageUrl('ask'));
+      await waitFor(() => page.run(() => document.querySelector('[role=textbox]')?.innerText.trim() === 'what is a spoon' && document.documentElement.children.length === 2));
+      // Typed once, the pill gone, the box focused and nothing sent.
+      assert.deepEqual(await page.run(() => ({
+        text: document.querySelector('[role=textbox]').innerText.trim(),
+        focused: document.activeElement === document.querySelector('[role=textbox]'),
+        sent: window.sent,
+        layers: document.documentElement.children.length,
+      })), { text: 'what is a spoon', focused: true, sent: 0, layers: 2 });
+      // A box that already holds something is left alone; the text stays to
+      // be copied.
+      await worker.run((url) => chrome.storage.local.set({ textBoxes: { '127.0.0.1': url } }), pageUrl('full'));
+      await worker.run(async (url) => { const [tab] = await chrome.tabs.query({ url }); await chrome.tabs.update(tab.id, { active: true }); }, pageUrl('A'));
+      frame = await enter();
+      await typeInto(frame, 'another');
+      await waitFor(async () => (await overlayResults(frame))[0]?.kind === 'Type into page');
+      await frame.press('Enter', { wait: false });
+      const full = await browser.page(pageUrl('full'));
+      await waitFor(() => full.run(() => document.documentElement.children.length === 3));
+      await new Promise((resolve) => setTimeout(resolve, 2500));
+      assert.deepEqual(await full.run(() => [document.querySelector('[role=textbox]').innerText.trim(), document.documentElement.children.length]), ['a draft', 3]);
     } finally {
       await rm(copy, { recursive: true, force: true });
     }
