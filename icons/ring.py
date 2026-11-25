@@ -132,6 +132,6 @@ def scene(name,w,t,tilt,spin,handle,fire,rough=.15,hl=1.2,hr=.25,style='taper'):
 # The icon's sizes: the smaller, the thicker ring and handle, and no script
 # where it could not be read.
 scene('L',.56,.31,-30,-12,'gold',True,.15,1.5,.27,'taper')
-scene('M',.56,.36,-28,-12,'gold',True,.16,1.4,.31,'taper')
-scene('S',.5,.4,-24,-12,'gold',False,.22,1.3,.36,'taper')
-scene('T',.46,.46,-20,-12,'gold',False,.26,1.25,.42,'taper')
+scene('M',.56,.36,-30,-12,'gold',True,.16,1.4,.31,'taper')
+scene('S',.5,.4,-30,-12,'gold',False,.22,1.3,.36,'taper')
+scene('T',.46,.46,-30,-12,'gold',False,.26,1.25,.42,'taper')
