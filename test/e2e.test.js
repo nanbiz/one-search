@@ -1195,8 +1195,7 @@ describe('overlay and toolbar button', { skip, concurrency: 1 }, () => {
       await new Promise((resolve) => setTimeout(resolve, 500));
       // Sent once, into the box the page drew last, and the pill gone.
       assert.deepEqual(await page.run(() => window.sent), ['what is a spoon']);
-      // A box that already holds something is left alone; the text stays to
-      // be copied.
+      // A draft the page kept in its box gives way to the text.
       await worker.run((url) => chrome.storage.local.set({ textBoxes: { '127.0.0.1': url } }), pageUrl('full'));
       await worker.run(async (url) => { const [tab] = await chrome.tabs.query({ url }); await chrome.tabs.update(tab.id, { active: true }); }, pageUrl('A'));
       frame = await enter();
@@ -1206,9 +1205,8 @@ describe('overlay and toolbar button', { skip, concurrency: 1 }, () => {
       // Vivaldi leaves a page that is attached to while it loads unanswered.
       await waitFor(() => worker.run(async (url) => (await chrome.tabs.query({ url })).some((tab) => tab.status === 'complete'), pageUrl('full')));
       const full = await browser.page(pageUrl('full'));
-      await waitFor(() => full.run(() => document.documentElement.children.length === 3));
-      await new Promise((resolve) => setTimeout(resolve, 2500));
-      assert.deepEqual(await full.run(() => [document.querySelector('[role=textbox]').innerText.trim(), document.documentElement.children.length]), ['a draft', 3]);
+      await waitFor(() => full.run(() => window.sent.length > 0));
+      assert.deepEqual(await full.run(() => window.sent), ['another']);
     } finally {
       await rm(copy, { recursive: true, force: true });
     }

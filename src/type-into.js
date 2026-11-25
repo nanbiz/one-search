@@ -1,7 +1,7 @@
 // Types a text into the page's main text box once the page has it, and sends
 // it the way the page takes it: its form, Enter in the box, or the button
 // beside the box. Where none of them takes it, the text stays in the box. A pill at the foot of the page shows the text while
-// the page gets there, and offers it to copy where no empty box turns up.
+// the page gets there, and offers it to copy where no box turns up.
 // Run by the worker in the page of the site picked, after text-box.js.
 globalThis.oneSearchTypeInto = async (text, waiting, copyIcon, textIcon) => {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -23,8 +23,11 @@ globalThis.oneSearchTypeInto = async (text, waiting, copyIcon, textIcon) => {
   root.append(pill);
   document.documentElement.append(host);
 
+  // What the box holds already, a draft the page kept say, gives way.
   const type = (box) => {
     box.focus();
+    if (box.select) box.select();
+    else getSelection().selectAllChildren(box);
     document.execCommand('insertText', false, text);
     // A field whose page keeps its own hand on the value.
     if (box.value !== undefined && contentOf(box) !== text) {
@@ -72,9 +75,8 @@ globalThis.oneSearchTypeInto = async (text, waiting, copyIcon, textIcon) => {
   let last = null;
   while (Date.now() < until) {
     const box = globalThis.oneSearchTextBox();
-    // The same box twice, as a page still starting replaces it; one that
-    // holds something else is the user's.
-    if (box && box === last && !contentOf(box)) {
+    // The same box twice, as a page still starting replaces it.
+    if (box && box === last) {
       type(box);
       // A page that takes its box over later empties it again.
       await sleep(700);
@@ -82,8 +84,6 @@ globalThis.oneSearchTypeInto = async (text, waiting, copyIcon, textIcon) => {
         host.remove();
         return await send(box) ? 'sent' : 'typed';
       }
-    } else if (box && box === last && contentOf(box)) {
-      break;
     }
     last = box;
     await sleep(200);
