@@ -442,21 +442,52 @@ function listingTabs() {
   return numberMode || (!siteSearch && !typed.trim());
 }
 
-// Rows of tabs in number mode run down in columns, as many as it takes to
-// keep a column to ten, up to four.
+// Number mode shows every tab of the window at once. Rows run down in columns
+// of up to ten, as many as the window is wide enough for, up to four; more
+// tabs make the columns longer, then the box moves up, then rows get lower.
 const PER_COLUMN = 10;
 const MAX_COLUMNS = 4;
+const MIN_COLUMN_WIDTH = 170;
+const ROW_HEIGHT = 45;
+const COLUMN_ROW_HEIGHT = 38;
+const MIN_ROW_HEIGHT = 22;
+const EDGE = 24;
+const NUMBERS_PADDING = 18;
+
+function numbersLayout(count) {
+  const top = Math.max(EDGE, innerHeight / 2 - 180);
+  const space = (from) => innerHeight - from - EDGE - NUMBERS_PADDING;
+  if (count <= PER_COLUMN && count * ROW_HEIGHT <= space(top)) return { columns: 1, rows: count, height: ROW_HEIGHT, top };
+  const widest = Math.max(1, Math.min(MAX_COLUMNS, Math.floor(innerWidth * 0.92 / MIN_COLUMN_WIDTH)));
+  const fitting = Math.max(1, Math.min(PER_COLUMN, Math.floor(space(top) / COLUMN_ROW_HEIGHT)));
+  const columns = Math.min(widest, Math.ceil(count / fitting));
+  const rows = Math.ceil(count / columns);
+  const raised = Math.max(EDGE, Math.min(top, innerHeight - EDGE - NUMBERS_PADDING - rows * COLUMN_ROW_HEIGHT));
+  const height = Math.max(MIN_ROW_HEIGHT, Math.min(COLUMN_ROW_HEIGHT, Math.floor(space(raised) / rows)));
+  return { columns, rows, height, top: raised };
+}
+
+// The list fades out at an edge it continues past. The rows' own places tell
+// how long it is, as rows on their way to them count as overflow too.
+function showMore() {
+  const bottom = Math.max(0, ...[...resultsList.children].map((element) => element.offsetTop + element.offsetHeight));
+  const hidden = bottom - resultsList.offsetTop - resultsList.clientHeight;
+  resultsList.classList.toggle('above', hidden > 1 && resultsList.scrollTop > 1);
+  resultsList.classList.toggle('below', hidden > 1 && resultsList.scrollTop < hidden);
+}
 
 function render() {
   const text = typed;
   showFilesOffer();
   items = listingTabs() ? tabRows() : siteSearch ? siteSearchItems(text) : results(text);
   selected = Math.min(selected, Math.max(items.length - 1, 0));
-  const columns = numberMode ? Math.min(MAX_COLUMNS, Math.max(1, Math.ceil(items.length / PER_COLUMN))) : 1;
+  const { columns, rows, height, top } = numberMode ? numbersLayout(items.length) : { columns: 1 };
   box.classList.toggle('numbers', numberMode);
   document.body.classList.toggle('numbers', numberMode);
   box.dataset.columns = String(columns);
-  resultsList.style.gridTemplateRows = columns > 1 ? `repeat(${Math.ceil(items.length / columns)}, auto)` : '';
+  resultsList.style.gridTemplateRows = columns > 1 ? `repeat(${rows}, auto)` : '';
+  box.style.setProperty('--row', `${height ?? ROW_HEIGHT}px`);
+  box.style.marginTop = top === undefined ? '' : `${top}px`;
   resultsList.replaceChildren();
   items.forEach((item, index) => {
     const element = row(item);
@@ -476,7 +507,11 @@ function render() {
     resultsList.append(element);
   });
   resultsList.querySelector('.selected')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  showMore();
 }
+
+resultsList.addEventListener('scroll', showMore);
+new ResizeObserver(showMore).observe(resultsList);
 
 function row(item) {
   const element = document.createElement('div');
@@ -543,7 +578,10 @@ function move(step) {
   if (items.length === 0) return;
   if (listingTabs() && !keyboardOnTabs) {
     keyboardOnTabs = true;
-    selected = step > 0 ? 0 : items.length - 1;
+    // From the tab the overlay was opened over, as that is where the user is.
+    const current = items.findIndex((item) => item.current);
+    const from = current === -1 && step > 0 ? -1 : Math.max(current, 0);
+    selected = (from + step + items.length) % items.length;
   } else {
     selected = (selected + step + items.length) % items.length;
   }
@@ -709,6 +747,12 @@ function pickKey(label) {
   if (index !== -1) pick(index);
 }
 
+// The arrows move through the list while Alt is held, and the list stays, with
+// the row they reached, once it is let go.
+function keepNumberMode(event) {
+  if (event.altKey) altEntered = false;
+}
+
 document.addEventListener('keydown', (event) => {
   const key = event.key;
   altAlone = key === 'Alt' && !event.repeat && !event.ctrlKey && !event.metaKey && !event.shiftKey;
@@ -763,9 +807,11 @@ document.addEventListener('keydown', (event) => {
     event.preventDefault();
   } else if (key === 'ArrowDown' || (event.ctrlKey && key === 'n')) {
     event.preventDefault();
+    keepNumberMode(event);
     move(1);
   } else if (key === 'ArrowUp' || (event.ctrlKey && key === 'p')) {
     event.preventDefault();
+    keepNumberMode(event);
     move(-1);
   } else if (key === 'Enter') {
     event.preventDefault();
@@ -774,8 +820,8 @@ document.addEventListener('keydown', (event) => {
 });
 
 // Alt let go alone keeps the number mode its press brought, or, pressed in
-// number mode, turns typing back on; let go after another key that picked no
-// tab, typing comes back.
+// number mode, turns typing back on; let go after another key that neither
+// picked a tab nor moved to one, typing comes back.
 document.addEventListener('keyup', (event) => {
   if (event.key !== 'Alt') return;
   event.preventDefault();
@@ -786,6 +832,12 @@ document.addEventListener('keyup', (event) => {
   }
   altAlone = false;
   altEntered = false;
+});
+
+window.addEventListener('resize', () => {
+  if (!target) return;
+  render();
+  placeSheet();
 });
 
 // Alt let go outside the overlay is no tap.

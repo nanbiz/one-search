@@ -145,26 +145,41 @@ body.tab #box {
   color: var(--muted);
 }
 
-#results:not(:empty) {
-  border-top: 1px solid var(--line);
+#bar:has(+ #results:not(:empty)) {
+  border-bottom: 1px solid var(--line);
 }
 
 #results:empty {
   display: none;
 }
 
+/* Seven rows and half of the next, so a list that goes on shows it. */
 #results {
-  max-height: 360px;
+  --fade: 34px;
+  max-height: 343px;
   overflow-y: auto;
   scrollbar-width: none;
   padding: 6px 0;
+}
+
+#results.below {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--fade)), transparent);
+}
+
+#results.above {
+  mask-image: linear-gradient(to bottom, transparent, #000 var(--fade));
+}
+
+#results.above.below {
+  mask-image: linear-gradient(to bottom, transparent, #000 var(--fade), #000 calc(100% - var(--fade)), transparent);
 }
 
 .row {
   display: flex;
   align-items: center;
   gap: 12px;
-  height: 45px;
+  box-sizing: border-box;
+  height: var(--row, 45px);
   padding: 0 18px;
   cursor: pointer;
 }
@@ -302,7 +317,7 @@ body.numbers #sheet {
 }
 
 #box.numbers #results {
-  border-top: 0;
+  max-height: calc(100vh - 48px);
 }
 
 #box.numbers .row .key {
@@ -310,17 +325,24 @@ body.numbers #sheet {
   color: #fff;
 }
 
+#box.numbers .row .key:empty {
+  background: none;
+}
+
+/* Wide enough for the widest label of two keys, so titles line up. */
+#box.numbers:not([data-columns="1"]) .row .key {
+  width: 27px;
+}
+
 #box.numbers:not([data-columns="1"]) #results {
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: minmax(0, 1fr);
   column-gap: 6px;
-  max-height: calc(100vh - 120px);
   padding: 8px;
 }
 
 #box.numbers:not([data-columns="1"]) .row {
-  height: 38px;
   padding: 0 10px;
   border-radius: 8px;
   min-width: 0;

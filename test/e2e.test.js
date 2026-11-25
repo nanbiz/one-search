@@ -438,6 +438,14 @@ function overlayResults(frame) {
   })));
 }
 
+// A picture of page A, for SYNCED_PINS_SHOTS=<folder>.
+async function shoot(browser, name) {
+  if (!process.env.SYNCED_PINS_SHOTS) return;
+  const page = await browser.page(pageUrl('A'));
+  const { data } = await browser.connection.send('Page.captureScreenshot', { format: 'png' }, page.sessionId);
+  await writeFile(join(process.env.SYNCED_PINS_SHOTS, `${name}.png`), Buffer.from(data, 'base64'));
+}
+
 function tabsIn(worker, windowId) {
   return worker.run(async (id) => (await chrome.tabs.query({ windowId: id })).map((tab) => ({
     id: tab.id, title: tab.title, url: tab.pendingUrl || tab.url, pinned: tab.pinned, active: tab.active, groupId: tab.groupId,
@@ -1247,6 +1255,45 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
     await waitFor(async () => !(await numbers()));
   });
 
+  overlayTest('the arrows start from the current tab, also with Alt held, and keep the row they reached once Alt is let go', async () => {
+    const { worker, browser } = await open();
+    const A = await createWindow(worker, 'A');
+    const before = await openTab(worker, A, 'before', { active: false, index: 0 });
+    const below = await openTab(worker, A, 'below', { active: false, index: 2 });
+    const last = await openTab(worker, A, 'last', { active: false, index: 3 });
+    for (const [id, title] of [[before, 'before'], [below, 'below'], [last, 'last']]) await waitForTitle(worker, id, title);
+    await focus(worker, A);
+    const selected = async (frame) => (await overlayResults(frame)).find((row) => row.selected)?.title;
+    // Nothing typed and no Alt: one up is the tab above.
+    const frame = await pressOverlayShortcut(browser, 'A');
+    await waitFor(async () => (await overlayResults(frame)).length === 4);
+    await frame.press('ArrowUp');
+    await waitFor(async () => (await selected(frame)) === 'before');
+    await frame.press('Escape', { wait: false });
+    await waitFor(async () => !(await overlayOpen(browser)));
+    // Alt held: one down is the tab below, the next the one after it.
+    const again = await pressOverlayShortcut(browser, 'A');
+    await waitFor(async () => (await overlayResults(again)).length === 4);
+    const key = (type, name, code, number, modifiers) => current.browser.connection.send('Input.dispatchKeyEvent', {
+      type, key: name, code, modifiers, windowsVirtualKeyCode: number, nativeVirtualKeyCode: number,
+    }, again.sessionId);
+    const down = async () => {
+      await key('rawKeyDown', 'ArrowDown', 'ArrowDown', 40, 1);
+      await key('keyUp', 'ArrowDown', 'ArrowDown', 40, 1);
+    };
+    await key('rawKeyDown', 'Alt', 'AltLeft', 18, 1);
+    await down();
+    await waitFor(async () => (await selected(again)) === 'below');
+    await down();
+    await waitFor(async () => (await selected(again)) === 'last');
+    await key('keyUp', 'Alt', 'AltLeft', 18, 0);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(await selected(again), 'last');
+    assert.equal(await again.run(() => document.getElementById('box').classList.contains('numbers')), true);
+    await again.press('Enter', { wait: false });
+    await waitFor(() => worker.run(async (id) => (await chrome.tabs.get(id)).active, last));
+  });
+
   overlayTest('a tap on Alt turns typing off, and a tab\'s key alone picks it; Alt again turns typing back on with the text kept, and Escape closes', async () => {
     const { worker, browser } = await open();
     const A = await createWindow(worker, 'A');
@@ -1303,6 +1350,45 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
     });
     await pressKey(frame, '3', { alt: true });
     await waitFor(async () => (await activeIn(worker, A)) === order[2].id);
+  });
+
+  overlayTest('number mode shows every tab at once, however many, and the list with nothing typed fades out where it goes on', async () => {
+    const { worker, browser } = await open();
+    const A = await createWindow(worker, 'A');
+    let opened = 1;
+    for (const count of [5, 10, 13, 72]) {
+      await worker.run(async (windowId, urls) => {
+        await Promise.all(urls.map((url) => chrome.tabs.create({ windowId, url, active: false })));
+      }, A, Array.from({ length: count - opened }, (_, n) => pageUrl(`tab ${opened + n}`)));
+      opened = count;
+      const frame = await pressOverlayShortcut(browser, 'A');
+      await waitFor(async () => (await overlayResults(frame)).length === count);
+      const fades = () => frame.run(() => [document.getElementById('results').classList.contains('above'), document.getElementById('results').classList.contains('below')]);
+      assert.deepEqual(await fades(), [false, count > 7]);
+      if (count > 7) {
+        await frame.run(() => document.getElementById('results').scrollTo({ top: 1e5 }));
+        await waitFor(async () => JSON.stringify(await fades()) === '[true,false]');
+      }
+      await shoot(browser, `list-${count}`);
+      await tapAlt(frame);
+      await waitFor(() => frame.run(() => document.getElementById('box').classList.contains('numbers')));
+      await waitFor(() => frame.run(() => document.getAnimations().length === 0));
+      const layout = await frame.run(() => {
+        const rows = [...document.querySelectorAll('#results .row')].map((row) => row.getBoundingClientRect());
+        const results = document.getElementById('results');
+        return {
+          rows: rows.length,
+          outside: rows.filter((row) => row.top < 0 || row.bottom > innerHeight || row.right > innerWidth).length,
+          scrolls: results.scrollHeight > results.clientHeight + 1,
+          faded: results.matches('.above, .below'),
+          keyWidths: new Set([...results.querySelectorAll('.key')].map((key) => key.offsetWidth)).size,
+        };
+      });
+      await shoot(browser, `numbers-${count}`);
+      assert.deepEqual(layout, { rows: count, outside: 0, scrolls: false, faded: false, keyWidths: 1 });
+      await frame.press('Escape', { wait: false });
+      await waitFor(async () => !(await overlayOpen(browser)));
+    }
   });
 
   overlayTest('number mode shows a few tabs as one list and forty in four columns', async () => {
