@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "One Search To Rule Them All",
-  "short_name": "One Search",
+  "name": "One Tool to rule them all",
+  "short_name": "One Tool",
   "version": "1.1.14",
   "description": "Spotlight-Like Search that fixes New Tab + Search for all Chromium Browsers",
   "minimum_chrome_version": "127",
