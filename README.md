@@ -4,7 +4,7 @@ Spotlight-Like Search that fixes New Tab + Search for all Chromium Browsers.
 
 Press Ctrl+T and a search bar opens over the page you are on. No tab opens until you pick something: an open tab, an address, a search, a page from your history or a browser action.
 
-![The search over a page, with the keys of the window's tabs](store/screenshot-3.png)
+![Switching to a tab by its title, going to one by its key with Alt, and closing the other tabs by name](docs/demo.webp)
 
 ## Install
 
@@ -16,6 +16,8 @@ On request we'll extend to Firefox: [open an issue](https://github.com/nanbiz/on
 
 It opens with **Ctrl+Shift+Space**, or with **Ctrl+T** once you [put it there](#putting-it-on-ctrlt).
 
+![Typing window in the search lists browser actions, a web search and an open tab](store/screenshot-2.png)
+
 - **Tabs:** with nothing typed it lists the window's tabs. Type part of a title or address to switch to a tab in any window.
 - **Addresses and searches:** type one and press Enter. Searches go to your browser's default search engine.
 - **One site:** pick a site that has its own search, press Tab and search it directly.
@@ -26,6 +28,8 @@ It opens with **Ctrl+Shift+Space**, or with **Ctrl+T** once you [put it there](#
 Escape or a click beside the bar closes it. Text you typed comes back if you open it over the same tab within 45 seconds.
 
 ### Alt
+
+![Every tab of the window with its key](store/screenshot-3.png)
 
 Hold or tap Alt to see every tab of the window with a key. Press that key to go there, or use the arrows, which start at the current tab, and Enter. Tap Alt again to type.
 

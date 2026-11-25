@@ -1,8 +1,10 @@
-// Captures the Chrome Web Store screenshots from a real headed Chromium with
-// the extension loaded: the window's tabs listed over a page, a search with
-// its results, and the Alt view. Run it through
+// Captures the Chrome Web Store screenshots and the README's demo from a real
+// headed Chromium with the extension loaded. The screenshots are the window's
+// tabs listed over a page, a search with its results, and the Alt view; the
+// demo switches to a tab by its title, goes to one by its key in the Alt view
+// and closes the other tabs by name. Run it through
 // scripts/capture-store-assets.sh, which provides the tools and the Xvfb display.
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createSandbox, launchBrowser, waitFor } from '../test/browser.js';
@@ -23,6 +25,7 @@ const TABS = [
   'https://www.w3.org/TR/css/',
   'https://news.ycombinator.com/',
 ];
+const demoPath = join(root, 'docs', 'demo.webp');
 const screenshotPath = (n) => join(root, 'store', `screenshot-${n}.png`);
 
 const stage = createStage({ screen: SCREEN, desktopColor: '#c7ccd4' });
@@ -90,6 +93,42 @@ async function capture(browser, worker) {
   keys('Alt_L');
   await sleep(1200);
   await stage.screenshot(screenshotPath(3));
+  keys('Alt_L');
+  await close();
+
+  const shown = async () => (await worker.run(async () => (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0].url));
+  const arrive = (part) => waitFor(async () => (await shown()).includes(part));
+  const typeSlowly = (text) => run('xdotool', ['type', '--delay', '110', text]);
+  const recording = `${demoPath}.mp4`;
+  mkdirSync(dirname(demoPath), { recursive: true });
+  const stop = stage.startRecording(recording);
+  await sleep(1000);
+  await open();
+  typeSlowly('wikipedia');
+  await sleep(1100);
+  // The web search comes first.
+  keys('Down');
+  await sleep(600);
+  keys('Return');
+  await arrive('wikipedia.org');
+  await sleep(1500);
+  await open();
+  keys('Alt_L');
+  await sleep(1300);
+  keys('5');
+  await arrive('docs.python.org');
+  await sleep(1500);
+  await open();
+  typeSlowly('close other');
+  await sleep(1100);
+  keys('Return');
+  await waitFor(() => worker.run(async () => (await chrome.tabs.query({ pinned: false })).length === 1));
+  await sleep(1800);
+  await stop();
+  run('ffmpeg', ['-y', '-loglevel', 'error', '-i', recording, '-vf', 'fps=12,scale=960:-1:flags=lanczos,format=yuv420p',
+    '-c:v', 'libwebp_anim', '-quality', '60', '-compression_level', '6', '-loop', '0', '-an', demoPath]);
+  rmSync(recording);
+  console.log(`wrote ${demoPath}`);
 }
 
 await main();

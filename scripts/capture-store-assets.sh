@@ -1,12 +1,12 @@
 #!/bin/sh
-# Regenerates store/screenshot-*.png: sh scripts/capture-store-assets.sh
+# Regenerates store/screenshot-*.png and docs/demo.webp: sh scripts/capture-store-assets.sh
 # Chromium runs headed on a private Xvfb display with openbox, never on the user's screen.
 set -eu
 cd "$(dirname "$0")/.."
 if [ -z "${ONE_SEARCH_CAPTURE_TOOLS:-}" ]; then
   export ONE_SEARCH_CAPTURE_TOOLS=1
   exec nix shell nixpkgs#chromium nixpkgs#xvfb-run nixpkgs#openbox nixpkgs#xdotool \
-    nixpkgs#xsetroot nixpkgs#imagemagick nixpkgs#nodejs -c sh "$0" "$@"
+    nixpkgs#xsetroot nixpkgs#imagemagick nixpkgs#ffmpeg-full nixpkgs#nodejs -c sh "$0" "$@"
 fi
 unset WAYLAND_DISPLAY DISPLAY
 export ONE_SEARCH_XVFB=1
