@@ -1,4 +1,4 @@
-// The actions the overlay offers by name, as Zen's address bar does, acting
+// The actions the overlay offers by name, acting
 // on the tab the overlay was opened over. Each is offered only where it can
 // do something.
 function isWebPage(tab) {

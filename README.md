@@ -53,7 +53,7 @@ A click opens the search over the page you are on.
 
 Right-click it for **Close other tabs**, which closes every tab of the window that is neither pinned nor in a tab group, apart from the one you are on. Untick **On** there to switch the extension off.
 
-## Coming from Zen Essentials in Chrome
+## Coming from a version up to 1.1.14
 
 Pinned tabs are no longer shared between windows; they work as your browser handles them. Helium shares them itself since 0.22.2.
 

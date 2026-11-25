@@ -16,6 +16,6 @@ For the last 20 times it opened over a page, it keeps that page's site name and 
 
 **Close other tabs** in the toolbar button's right-click menu closes the other tabs of its window.
 
-Versions up to 1.1.14, named Zen Essentials in Chrome, also kept the address, title and icon of your pinned tabs in local storage, and a log of decisions about them, to show them in every window. Later versions delete both.
+Versions up to 1.1.14 also kept the address, title and icon of your pinned tabs in local storage, and a log of decisions about them, to show them in every window. Later versions delete both.
 
 Removing the extension removes all of this. Questions go to the [issue tracker](https://github.com/nanbiz/one-search/issues).

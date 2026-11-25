@@ -41,7 +41,7 @@ async function openOverlayTab(windowId, open) {
 }
 
 // Opens the overlay over the page in the tab, centred over the page dimmed and
-// blurred as Zen does, or closes it where it is open already. Runs in the
+// blurred, or closes it where it is open already. Runs in the
 // page, so it is self-contained.
 function toggleInPage(path, query, openOnly = false, deadline = 0) {
   const id = 'one-search-overlay';

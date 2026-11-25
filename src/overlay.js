@@ -11,7 +11,7 @@ const mode = params.get('mode') ?? 'tab';
 const replacing = mode === 'tab';
 const overlayPage = chrome.runtime.getURL('src/overlay.html');
 
-// Zen keeps the text of an overlay closed without a choice for this long, so
+// The text of an overlay closed without a choice is kept for this long, so
 // opening it again over the same tab brings the text back.
 const KEEP_QUERY_MS = 45_000;
 // Actions are offered from this many letters on, unless the name matches
@@ -306,7 +306,7 @@ async function forgetQuery() {
 }
 
 // A page picked loads in the tab being given up; elsewhere it opens in a new
-// tab, as Zen opens it.
+// tab.
 async function openAddress(address) {
   // The browser refuses a local file without its file access, so the address
   // leads to the page holding that switch.
@@ -853,8 +853,7 @@ window.addEventListener('blur', () => {
   altEntered = false;
 });
 
-// A click beside the box over a page closes the overlay, as clicking outside
-// Zen's address bar does.
+// A click beside the box over a page closes the overlay.
 document.addEventListener('mousedown', (event) => {
   if (mode === 'frame' && !document.getElementById('box').contains(event.target)) {
     dismiss();

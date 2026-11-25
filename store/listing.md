@@ -28,7 +28,7 @@ Clear the rest. Right-click the toolbar button and pick Close other tabs. Pinned
 
 It opens with Ctrl+Shift+Space, and on Ctrl+T after a short guided setup in browsers that allow it. In Vivaldi, which keeps Ctrl+T, its new tab becomes the search instead.
 
-Formerly Zen Essentials in Chrome: pinned tabs are no longer shared between windows and work as your browser handles them.
+Coming from a version up to 1.1.14: pinned tabs are no longer shared between windows and work as your browser handles them.
 
 On request we'll extend to Firefox: https://github.com/nanbiz/one-search/issues
 

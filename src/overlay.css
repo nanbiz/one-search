@@ -26,8 +26,8 @@ body {
   font: 15px system-ui, sans-serif;
 }
 
-/* Over a page the overlay sits centred a little above the middle, as Zen's
-   address bar does, and in a tab of its own at the same height. */
+/* Over a page the overlay sits centred a little above the middle,
+   and in a tab of its own at the same height. */
 body.frame {
   overflow: hidden;
   display: flex;
