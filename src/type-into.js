@@ -1,7 +1,8 @@
-// Types a text into the page's main text box once the page has it, and leaves
-// sending it to the user. A pill at the foot of the page shows the text while
+// Types a text into the page's main text box once the page has it, and sends
+// it the way the page takes it: its form, Enter in the box, or the button
+// beside the box. Where none of them takes it, the text stays in the box. A pill at the foot of the page shows the text while
 // the page gets there, and offers it to copy where no empty box turns up.
-// Run by the worker in a page of a site the user allowed, after text-box.js.
+// Run by the worker in the page of the site picked, after text-box.js.
 globalThis.oneSearchTypeInto = async (text, waiting, copyIcon, textIcon) => {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const contentOf = (element) => (element.value ?? element.innerText ?? '').trim();
@@ -32,6 +33,41 @@ globalThis.oneSearchTypeInto = async (text, waiting, copyIcon, textIcon) => {
       box.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
     }
   };
+  // The page took the text once the box no longer holds it.
+  const taken = async (box) => {
+    for (let wait = 0; wait < 10; wait++) {
+      await sleep(100);
+      if (!box.isConnected || !contentOf(box).includes(text)) return true;
+    }
+    return false;
+  };
+  const shown = (element) => element.checkVisibility() && element.getBoundingClientRect().width > 0;
+  // The button that sends the box: the nearest one around it that names
+  // sending, or submits.
+  const sendButton = (box) => {
+    for (let around = box.parentElement, level = 0; around && level < 6; around = around.parentElement, level++) {
+      const button = [...around.querySelectorAll('button, [role=button], input[type=submit]')].find((candidate) => shown(candidate)
+        && !candidate.disabled && candidate.getAttribute('aria-disabled') !== 'true'
+        && (candidate.type === 'submit' || /\b(send|submit|ask|search|go)\b/i.test(`${candidate.getAttribute('aria-label') ?? ''} ${candidate.title ?? ''} ${candidate.innerText ?? ''} ${candidate.value ?? ''}`)));
+      if (button) return button;
+    }
+    return null;
+  };
+  const send = async (box) => {
+    if (box.form) {
+      box.form.requestSubmit();
+      if (await taken(box)) return true;
+    }
+    const enter = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true, composed: true };
+    box.dispatchEvent(new KeyboardEvent('keydown', enter));
+    box.dispatchEvent(new KeyboardEvent('keypress', enter));
+    box.dispatchEvent(new KeyboardEvent('keyup', enter));
+    if (await taken(box)) return true;
+    const button = sendButton(box);
+    if (!button) return false;
+    button.click();
+    return taken(box);
+  };
   const until = Date.now() + waiting;
   let last = null;
   while (Date.now() < until) {
@@ -44,7 +80,7 @@ globalThis.oneSearchTypeInto = async (text, waiting, copyIcon, textIcon) => {
       await sleep(700);
       if (box.isConnected && contentOf(box).includes(text)) {
         host.remove();
-        return 'typed';
+        return await send(box) ? 'sent' : 'typed';
       }
     } else if (box && box === last && contentOf(box)) {
       break;

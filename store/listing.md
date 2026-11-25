@@ -19,7 +19,7 @@ Description:
 
 Spotlight-like search for your browser. Press Ctrl+T and a search bar opens over the page you are on. No tab opens until you pick something.
 
-Find anything from one place. Type part of a title to switch to a tab in any window, type an address or a search to open it, or search your history and bookmarks once you allow it. Pick a site with its own search and press Tab to search it directly, or a site with a text box, such as a chat, to type into it once you allow it there. Browser pages such as downloads or settings and actions such as duplicate, pin tab or private window are found by name.
+Find anything from one place. Type part of a title to switch to a tab in any window, type an address or a search to open it, or search your history and bookmarks once you allow it. Pick a site with its own search and press Tab to search it directly, or a site with a text box, such as a chat, to send your text there. Browser pages such as downloads or settings and actions such as duplicate, pin tab or private window are found by name.
 
 Every tab, one key. Hold Alt to see all tabs of the window, each with a key to jump to it. The arrow keys work too, starting at the current tab.
 
@@ -44,11 +44,11 @@ Nothing is collected or sent anywhere. Source: https://github.com/nanbiz/one-sea
 - alarms: Keeps the extension's worker running so the search opens without a delay.
 - contextMenus: Adds Close other tabs and an on/off entry to the toolbar button's right-click menu.
 - activeTab: Lets the search be drawn over the page the user is on, only after the user presses its keyboard shortcut or toolbar button there.
-- scripting: Inserts the search into the page the user is on when the user presses its keyboard shortcut or toolbar button; nothing is read from the page. Where the user allowed all sites, also reads the site's OpenSearch description so the site can be searched, notes whether a page has a text box, and types the text the user entered into a site the user allowed it on.
+- scripting: Inserts the search into the page the user is on when the user presses its keyboard shortcut or toolbar button; nothing is read from the page. Where the user allowed all sites, also reads the site's OpenSearch description so the site can be searched, notes whether a page has a text box, and types and sends the text the user entered into the site the user picked.
 - search: Sends a search the user picks in the search to the browser's default search engine.
 - history (optional, asked for from the search): Lets the search suggest sites and pages the user visited for what they type, once the user allows it; held in session storage, never sent.
 - bookmarks (optional, asked for from the search): Lets the search suggest the user's bookmarks for what they type, once the user allows it; held in session storage, never sent.
-- Host permission <all_urls> (optional, asked for from the search): Lets a tab opened on the New Tab page close at once and the search open over the page the user was on instead, once the user allows it; on pages visited it also reads the site's OpenSearch description, so that site can be searched with Tab, notes whether a page has a text box, and types into a site the user allowed it on; nothing else is read.
+- Host permission <all_urls> (optional, asked for from the search): Lets a tab opened on the New Tab page close at once and the search open over the page the user was on instead, once the user allows it; on pages visited it also reads the site's OpenSearch description, so that site can be searched with Tab, notes whether a page has a text box, and types and sends a text into the site the user picked; nothing else is read.
 - Remote code: No.
 - Data usage: no data collected; certify the three statements (not sold, not used for unrelated purposes, not used for creditworthiness).
 - Privacy policy: https://github.com/nanbiz/one-search/blob/main/PRIVACY.md

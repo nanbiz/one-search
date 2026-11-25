@@ -10,7 +10,7 @@ globalThis.oneSearchTextBox ??= () => {
       if (!element.matches('textarea, input, [contenteditable=""], [contenteditable=true], [contenteditable=plaintext-only]')) continue;
       const box = element.getBoundingClientRect();
       if (box.width < 120 || box.height < 12 || box.bottom <= 0 || box.top >= innerHeight) continue;
-      if (!element.checkVisibility({ opacityProperty: false, visibilityProperty: true }) || element.disabled || element.readOnly || element.closest('[aria-hidden=true], [inert]')) continue;
+      if (!element.checkVisibility({ opacityProperty: false, visibilityProperty: true }) || element.disabled || element.readOnly || element.closest('[inert]')) continue;
       if (element.type === 'password') password = true;
       if (element.matches('input') && !['text', 'search'].includes(element.type)) continue;
       // An editor can hold editable parts of its own.

@@ -36,12 +36,12 @@ export async function learnTextBox(pageUrl) {
 // The texts on their way to a page, by tab.
 const onTheWay = new Map();
 
-// Opens the site's page for a text to be typed into, in the tab given or a
-// new one. Only a site the user allowed is typed into.
+// Opens the site's page for a text to be typed into and sent, in the tab
+// given or a new one.
 export async function typeInto({ site, text, tabId, windowId }) {
-  const { textBoxes = {}, typeAllowed = {} } = await chrome.storage.local.get(['textBoxes', 'typeAllowed']);
+  const { textBoxes = {} } = await chrome.storage.local.get('textBoxes');
   const url = textBoxes[site];
-  if (!url || typeAllowed[site] !== true || typeof text !== 'string' || !await chrome.permissions.contains(PAGES)) return;
+  if (!url || typeof text !== 'string' || !await chrome.permissions.contains(PAGES)) return;
   const tab = tabId === undefined ? await chrome.tabs.create({ windowId, url }) : await chrome.tabs.update(tabId, { url });
   onTheWay.set(tab.id, { site, text, until: Date.now() + ARRIVE_MS });
 }

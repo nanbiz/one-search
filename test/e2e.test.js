@@ -47,7 +47,7 @@ const server = createServer((request, response) => {
     response.end(`<!doctype html><title>${name}</title><div id="app"></div><script>
       const draw = () => { app.innerHTML = '<div role="textbox" contenteditable="true" style="width:400px;height:60px;border:1px solid">${name === 'full' ? 'a draft' : ''}</div>'; };
       setTimeout(draw, 800); setTimeout(() => { if ('${name}' === 'ask') draw(); }, 1600);
-      window.sent = 0; addEventListener('keydown', (event) => { if (event.key === 'Enter') window.sent += 1; });
+      window.sent = []; addEventListener('keydown', (event) => { const box = document.querySelector('[role=textbox]'); if (event.key === 'Enter' && box) { event.preventDefault(); window.sent.push(box.innerText.trim()); box.textContent = ''; } });
     </script>`);
     return;
   }
@@ -1153,7 +1153,7 @@ describe('overlay and toolbar button', { skip, concurrency: 1 }, () => {
     }
   });
 
-  overlayTest('a site without a search of its own whose page has a text box is typed into once allowed, and the user sends it', async () => {
+  overlayTest('a site without a search of its own whose page has a text box gets the text typed and sent', async () => {
     const copy = await mkdtemp(join(tmpdir(), 'one-search-type-'));
     try {
       await cp(extensionPath, copy, { recursive: true, filter: (path) => !/\/(node_modules|dist|\.git)(\/|$)/.test(path) });
@@ -1185,33 +1185,23 @@ describe('overlay and toolbar button', { skip, concurrency: 1 }, () => {
         return frame;
       };
       let frame = await enter();
-      // Nothing to pick until the user allows it, once.
       await typeInto(frame, 'what is a spoon');
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      assert.equal((await overlayResults(frame)).length, 0);
-      assert.equal(await frame.run(() => document.querySelector('#typing span').textContent), 'Type into 127.0.0.1');
-      await frame.run(() => document.getElementById('typing-allow').click());
-      await waitFor(async () => (await overlayResults(frame))[0]?.kind === 'Type into page');
-      assert.equal(await frame.run(() => document.getElementById('typing').hidden), true);
+      await waitFor(async () => (await overlayResults(frame))[0]?.kind === 'Send to page');
       await frame.press('Enter', { wait: false });
       // Vivaldi leaves a page that is attached to while it loads unanswered.
       await waitFor(() => worker.run(async (url) => (await chrome.tabs.query({ url })).some((tab) => tab.status === 'complete'), pageUrl('ask')));
       const page = await browser.page(pageUrl('ask'));
-      await waitFor(() => page.run(() => document.querySelector('[role=textbox]')?.innerText.trim() === 'what is a spoon' && document.documentElement.children.length === 2));
-      // Typed once, the pill gone, the box focused and nothing sent.
-      assert.deepEqual(await page.run(() => ({
-        text: document.querySelector('[role=textbox]').innerText.trim(),
-        focused: document.activeElement === document.querySelector('[role=textbox]'),
-        sent: window.sent,
-        layers: document.documentElement.children.length,
-      })), { text: 'what is a spoon', focused: true, sent: 0, layers: 2 });
+      await waitFor(() => page.run(() => window.sent.length > 0 && document.documentElement.children.length === 2));
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      // Sent once, into the box the page drew last, and the pill gone.
+      assert.deepEqual(await page.run(() => window.sent), ['what is a spoon']);
       // A box that already holds something is left alone; the text stays to
       // be copied.
       await worker.run((url) => chrome.storage.local.set({ textBoxes: { '127.0.0.1': url } }), pageUrl('full'));
       await worker.run(async (url) => { const [tab] = await chrome.tabs.query({ url }); await chrome.tabs.update(tab.id, { active: true }); }, pageUrl('A'));
       frame = await enter();
       await typeInto(frame, 'another');
-      await waitFor(async () => (await overlayResults(frame))[0]?.kind === 'Type into page');
+      await waitFor(async () => (await overlayResults(frame))[0]?.kind === 'Send to page');
       await frame.press('Enter', { wait: false });
       // Vivaldi leaves a page that is attached to while it loads unanswered.
       await waitFor(() => worker.run(async (url) => (await chrome.tabs.query({ url })).some((tab) => tab.status === 'complete'), pageUrl('full')));
