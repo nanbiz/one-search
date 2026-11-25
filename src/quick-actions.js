@@ -19,7 +19,7 @@ export const quickActions = [
   {
     label: 'Close Other Tabs', icon: 'copy-x.svg',
     available: () => true,
-    run: (tab) => chrome.runtime.sendMessage({ type: 'closeTabs', tabId: tab.id, othersOnly: true }),
+    run: (tab) => chrome.runtime.sendMessage({ type: 'closeOtherTabs', tabId: tab.id }),
   },
   { label: 'Duplicate Current Tab', icon: 'copy.svg', available: isWebPage, run: (tab) => chrome.tabs.duplicate(tab.id) },
   { label: 'Reload Tab', icon: 'rotate-cw.svg', available: isWebPage, run: (tab) => chrome.tabs.reload(tab.id) },

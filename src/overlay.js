@@ -7,9 +7,8 @@ import { isCtrlT, overlayShortcut } from './shortcut.js';
 // a tab open. It runs over a page (frame) or as a tab of its own (tab).
 const params = new URLSearchParams(location.search);
 const mode = params.get('mode') ?? 'tab';
-// The tab the overlay was opened for is given up for whatever is picked: the
-// overlay's own tab, or the page the toolbar button's second click closes.
-const replacing = mode === 'tab' || params.get('replace') === '1';
+// The overlay's own tab is given up for whatever is picked.
+const replacing = mode === 'tab';
 const overlayPage = chrome.runtime.getURL('src/overlay.html');
 
 // Zen keeps the text of an overlay closed without a choice for this long, so

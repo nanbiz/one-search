@@ -11,10 +11,6 @@ function inGroup(tab) {
   return tab.groupId !== undefined && tab.groupId !== NO_TAB_GROUP;
 }
 
-function overlayUrl(mode, tab) {
-  return chrome.runtime.getURL(`${overlayPath}?${new URLSearchParams({ mode, tab: tab.id, window: tab.windowId })}`);
-}
-
 // Windows the overlay is being opened in as a tab, and the overlay tabs just
 // opened: a tab that has only just been created can show no address yet, so
 // a second press arriving then would otherwise open a second overlay over it.
@@ -437,62 +433,10 @@ export async function toggleOverlay(tab) {
   }
 }
 
-// The tabs a click on the button closes in the window: every tab that is
-// neither pinned nor in a tab group, apart from the selected one, or, once
-// those are gone, the selected one.
-function closableTabs(tabs) {
-  const current = tabs.find((tab) => tab.active);
-  const loose = tabs.filter((tab) => !tab.pinned && !inGroup(tab));
-  const others = loose.filter((tab) => tab !== current);
-  if (others.length > 0) return { tabs: others, current: false };
-  return { tabs: loose.filter((tab) => tab === current), current: true };
-}
-
-// The overlay's Close Other Tabs closes only the others; the button's second
-// click gives up the selected tab too.
-export async function closeTabs(tab, { othersOnly = false } = {}) {
+// Closes the window's tabs that are neither pinned nor in a tab group, apart
+// from the selected one.
+export async function closeOtherTabs(tab) {
   const tabs = await chrome.tabs.query({ windowId: tab.windowId });
-  const closable = closableTabs(tabs);
-  if (closable.tabs.length === 0 || (closable.current && othersOnly)) return;
-  if (!closable.current) {
-    await chrome.tabs.remove(closable.tabs.map((other) => other.id));
-    return;
-  }
-  // The selected tab goes too, once the overlay drawn over it has been told
-  // where to go instead; Escape keeps it. Where the page cannot host the
-  // overlay, the overlay takes the tab's place at once.
-  try {
-    const query = new URLSearchParams({ mode: 'frame', replace: '1', tab: tab.id, window: tab.windowId }).toString();
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: toggleInPage, args: [overlayPath, query], injectImmediately: true });
-  } catch {
-    await chrome.tabs.create({ windowId: tab.windowId, index: tab.index + 1, active: true, url: overlayUrl('tab', tab) });
-    await chrome.tabs.remove(tab.id);
-  }
-}
-
-// The button shows how many tabs a click closes in the window it sits in.
-// Counts for a window run one after another, so an earlier count finishing
-// late never overwrites a later one.
-const counting = new Map();
-
-export function showClosableCount(windowId) {
-  const next = (counting.get(windowId) ?? Promise.resolve()).then(() => countIn(windowId));
-  counting.set(windowId, next);
-  next.finally(() => {
-    if (counting.get(windowId) === next) counting.delete(windowId);
-  });
-  return next;
-}
-
-async function countIn(windowId) {
-  let tabs;
-  try {
-    tabs = await chrome.tabs.query({ windowId });
-  } catch {
-    return;
-  }
-  const active = tabs.find((tab) => tab.active);
-  if (!active) return;
-  const count = closableTabs(tabs).tabs.length;
-  await chrome.action.setBadgeText({ tabId: active.id, text: count > 0 ? String(count) : '' }).catch(() => {});
+  const others = tabs.filter((other) => !other.active && !other.pinned && !inGroup(other));
+  await chrome.tabs.remove(others.map((other) => other.id));
 }

@@ -6,7 +6,7 @@ While the search is open, it reads the address, title and icon of your open tabs
 
 Text you typed and left without choosing anything stays in the browser's session storage, and comes back if you open the search over the same tab within 45 seconds. Session storage is cleared when the browser quits.
 
-The search is drawn over a page after you press its shortcut there, or over the page you were on when you open a new tab, if you allow that. On a page too busy to draw it, it opens as a tab over a picture of that page, which is held in session storage until shown. On a page it cannot be drawn over, it notes that page's address and the reason in session storage.
+The search is drawn over a page after you press its shortcut or its toolbar button there, or over the page you were on when you open a new tab, if you allow that. On a page too busy to draw it, it opens as a tab over a picture of that page, which is held in session storage until shown. On a page it cannot be drawn over, it notes that page's address and the reason in session storage.
 
 If you allow it to open over any page, it also looks on the pages you visit for the site's own search description (OpenSearch), so you can search that site with Tab. It requests that description from the site itself, with your session there only where the description is on the same address as the page, and keeps the site's name and search address in local storage. It reads nothing else from pages.
 
@@ -14,8 +14,8 @@ If you allow history and bookmarks, it searches them for what you type. A copy o
 
 For the last 20 times it opened over a page, it keeps that page's site name and how long each step took in local storage, so a slow opening can be looked into.
 
-The toolbar button counts and closes the tabs of its window.
+**Close other tabs** in the toolbar button's right-click menu closes the other tabs of its window.
 
-Versions up to 1.1.14, named Zen Essentials in Chrome, also kept the address, title and icon of your pinned tabs in local storage, and a log of decisions about them, to show them in every window. Later versions delete both once they have opened the pinned pages that were not open.
+Versions up to 1.1.14, named Zen Essentials in Chrome, also kept the address, title and icon of your pinned tabs in local storage, and a log of decisions about them, to show them in every window. Later versions delete both.
 
 Removing the extension removes all of this. Questions go to the [issue tracker](https://github.com/nanbiz/one-search/issues).

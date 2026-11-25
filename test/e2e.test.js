@@ -153,11 +153,6 @@ async function restart(options) {
   return current;
 }
 
-// The titles of all pinned tabs.
-async function pinnedTitles(worker) {
-  return worker.run(async () => (await chrome.tabs.query({ pinned: true })).map((tab) => tab.title).sort());
-}
-
 function createWindow(worker, name, options = {}) {
   return worker.run(async (url, options) => (await chrome.windows.create({ url, focused: true, ...options })).id,
     pageUrl(name), options);
@@ -191,43 +186,7 @@ function focus(worker, windowId) {
   return worker.run((id) => chrome.windows.update(id, { focused: true }), windowId);
 }
 
-describe('pins of earlier versions and the switch', { skip, concurrency: 1 }, () => {
-  test('after the update each pin whose page is open nowhere opens once, pinned, and the list goes', { skip: unshared }, async () => {
-    const { worker, browser } = await open();
-    const A = await createWindow(worker, 'A');
-    const a = await openTab(worker, A, 'a', { pinned: true, active: false });
-    await waitForTitle(worker, a, 'a');
-    await worker.run((pins) => chrome.storage.local.set({ pins }), [
-      { id: '1', url: pageUrl('a') },
-      { id: '2', url: pageUrl('moved'), home: { url: pageUrl('b') } },
-      { id: '3', url: 'chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/src/placeholder.html?pin=9&url=x' },
-    ]);
-    await worker.run(() => { setTimeout(() => chrome.runtime.reload(), 0); });
-    await waitFor(() => worker.run(() => false).catch(() => true));
-    const reloaded = await readyWorker(browser);
-    await waitFor(() => reloaded.run(async () => (await chrome.storage.local.get('pins')).pins === undefined));
-    await waitFor(async () => (await pinnedTitles(reloaded)).join() === 'a,b')
-      .catch(async () => assert.deepEqual(await pinnedTitles(reloaded), ['a', 'b']));
-    // Nothing is left for a later start to open again.
-    await reloaded.run(() => { setTimeout(() => chrome.runtime.reload(), 0); });
-    await waitFor(() => reloaded.run(() => false).catch(() => true));
-    const again = await readyWorker(browser);
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    assert.deepEqual(await pinnedTitles(again), ['a', 'b']);
-  });
-
-  test('tabs that stood in for a pin, brought back by the browser, leave its page open once', async () => {
-    const { worker } = await open();
-    const A = await createWindow(worker, 'A');
-    await worker.run(async (windowId, url) => {
-      const standIn = `${chrome.runtime.getURL('src/placeholder.html')}?${new URLSearchParams({ pin: '1', url, title: 'a' })}`;
-      await Promise.all([1, 2, 3].map(() => chrome.tabs.create({ windowId, url: standIn, active: false })));
-    }, A, pageUrl('a'));
-    const urls = async () => (await tabsIn(worker, A)).map((tab) => tab.url).sort();
-    await waitFor(async () => JSON.stringify(await urls()) === JSON.stringify([pageUrl('A'), pageUrl('a')].sort()))
-      .catch(async () => assert.deepEqual(await urls(), [pageUrl('A'), pageUrl('a')].sort()));
-  });
-
+describe('pinned tabs and the switch', { skip, concurrency: 1 }, () => {
   test('pinned tabs are left alone: pinning and a new window change no other tab', { skip: unshared }, async () => {
     const { worker } = await open();
     const A = await createWindow(worker, 'A');
@@ -410,19 +369,15 @@ async function setFileAccess(browser, worker, fileAccess) {
   return next;
 }
 
-// Clicks the toolbar button in the tab's window, the way its click reaches
-// the extension: as a closeTabs message, sent from an extension page in a
-// window of its own that goes again afterwards.
-async function clickButton(browser, worker, tabId) {
-  const welcome = await worker.run(async () => {
-    const window = await chrome.windows.create({ url: chrome.runtime.getURL('src/welcome.html'), focused: false });
-    return { windowId: window.id, tabId: window.tabs[0].id };
-  });
-  // Vivaldi leaves a page that is attached to while it loads unanswered.
-  await waitFor(() => worker.run(async (id) => (await chrome.tabs.get(id)).status === 'complete', welcome.tabId));
-  const page = await browser.page((url) => url.includes('/src/welcome.html'));
-  await page.run((id) => chrome.runtime.sendMessage({ type: 'closeTabs', tabId: id }), tabId);
-  await worker.run((id) => chrome.windows.remove(id), welcome.windowId);
+// Clicks the toolbar button, or with an entry that entry of its right-click
+// menu, by raising the event the click raises: the protocol has no click on
+// the browser's own toolbar.
+async function clickButton(worker, tabId, entry) {
+  await worker.run(async (id, menuItemId) => {
+    const tab = await chrome.tabs.get(id);
+    if (menuItemId) chrome.contextMenus.onClicked.dispatch({ menuItemId }, tab);
+    else chrome.action.onClicked.dispatch(tab);
+  }, tabId, entry);
 }
 
 async function typeInto(frame, text) {
@@ -452,7 +407,7 @@ function tabsIn(worker, windowId) {
   })), windowId);
 }
 
-describe('overlay and closing button', { skip, concurrency: 1 }, () => {
+describe('overlay and toolbar button', { skip, concurrency: 1 }, () => {
   overlayTest('letters typed between the shortcut and the overlay being ready go to its field, not to the page', async (context) => {
     const { worker, browser } = await open();
     const A = await createWindow(worker, 'A');
@@ -643,7 +598,7 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
   overlayTest('the overlay offers open tabs and pins, and picking one selects it', async () => {
     const { worker, browser } = await open();
     const { windows: [A, B] } = await twoWindowsWithPins(worker);
-    const other = await openTab(worker, A, 'other');
+    const other = await openTab(worker, A, 'other', { active: false });
     await waitForTitle(worker, other, 'other');
     await focus(worker, B);
     const frame = await pressOverlayShortcut(browser, 'B');
@@ -709,7 +664,7 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
     assert.deepEqual(missing, [], JSON.stringify(opened));
   });
 
-  overlayTest('closing other tabs leaves pins and tab groups, and the button\'s second click gives up the selected tab for a pick in the overlay', async (context) => {
+  overlayTest('closing other tabs leaves pins and tab groups, from the overlay and from the button\'s menu', async (context) => {
     const { worker, browser } = await open();
     const { windows: [A], a } = await twoWindowsWithPins(worker);
     await focus(worker, A);
@@ -719,10 +674,6 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
     const loose = await openTab(worker, A, 'loose');
     const current = await openTab(worker, A, 'current', { active: true });
     await waitForTitle(worker, current, 'current');
-    const badge = () => worker.run((id) => chrome.action.getBadgeText({ tabId: id }), current);
-    // A: the window's first tab, loose: one more; the group and pins stay.
-    let shown;
-    await waitFor(async () => (shown = await badge()) === '2').catch(async () => assert.fail(`badge ${shown}, tabs ${JSON.stringify(await tabsIn(worker, A))}`));
     const frame = await pressOverlayShortcut(browser, 'current');
     await typeInto(frame, 'close other');
     await waitFor(async () => (await overlayResults(frame))[0]?.title === 'Close Other Tabs');
@@ -732,7 +683,6 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
       return titles.join() === 'grouped,current';
     });
     assert.equal(await worker.run((id) => chrome.tabs.get(id).then(() => true, () => false), loose), false);
-    await waitFor(async () => (await badge()) === '1');
     // Named in the overlay once only the selected tab is left, it closes
     // nothing more.
     const again = await pressOverlayShortcut(browser, 'current');
@@ -741,38 +691,34 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
     await again.press('Enter', { wait: false });
     await waitFor(async () => !(await overlayOpen(browser)));
     assert.equal(await worker.run((id) => chrome.tabs.get(id).then(() => true, () => false), current), true);
-    // The button's second click opens the overlay over the selected tab,
-    // which goes once a pin is picked there.
-    await clickButton(browser, worker, current);
-    const second = await overlayFrame(browser);
-    assert.match((await browser.targets()).find((info) => info.type === 'iframe' && info.url.includes('/src/overlay.html')).url, /replace=1/);
-    await second.press('ArrowDown');
-    await second.press('Enter', { wait: false });
-    await waitFor(async () => (await worker.run((id) => chrome.tabs.get(id).then(() => true, () => false), current)) === false);
-    await waitFor(() => worker.run(async (id) => (await chrome.tabs.get(id)).active, a));
-    assert.equal(await worker.run((id) => chrome.tabs.get(id).then(() => true, () => false), grouped), true);
+    // The entry of the button's menu does the same.
+    const more = await openTab(worker, A, 'more', { active: false });
+    await clickButton(worker, current, 'close-others');
+    await waitFor(() => worker.run((id) => chrome.tabs.get(id).then(() => false, () => true), more));
+    for (const id of [a, grouped, current]) assert.equal(await worker.run((tabId) => chrome.tabs.get(tabId).then(() => true, () => false), id), true);
   });
 
-  overlayTest('an address picked in the overlay of the button\'s second click loads in the tab it was opened over', async () => {
+  overlayTest('a click on the toolbar button opens the overlay over the page, and nothing while switched off', async () => {
     const { worker, browser } = await open();
     const A = await createWindow(worker, 'A');
     const [tab] = await tabsIn(worker, A);
-    // Escape keeps the tab.
+    // The shortcut lets the extension draw on the page, as a real click does.
     const first = await pressOverlayShortcut(browser, 'A');
     await first.press('Escape', { wait: false });
     await waitFor(async () => !(await overlayOpen(browser)));
-    await clickButton(browser, worker, tab.id);
-    const kept = await overlayFrame(browser);
-    await kept.press('Escape', { wait: false });
-    await waitFor(async () => !(await overlayOpen(browser)));
-    assert.equal(await worker.run((id) => chrome.tabs.get(id).then(() => true, () => false), tab.id), true);
-    await clickButton(browser, worker, tab.id);
+    await clickButton(worker, tab.id);
     const frame = await overlayFrame(browser);
-    await typeInto(frame, pageUrl('there').replace('http://', ''));
-    await waitFor(async () => (await overlayResults(frame))[0]?.kind === 'Open');
-    await frame.press('Enter', { wait: false });
-    await waitFor(() => worker.run(async (id) => (await chrome.tabs.get(id)).title === 'there', tab.id));
-    assert.equal((await tabsIn(worker, A)).length, 1);
+    await frame.press('Escape', { wait: false });
+    await waitFor(async () => !(await overlayOpen(browser)));
+    await worker.run(() => chrome.storage.local.set({ off: true }));
+    await waitFor(() => worker.run(async () => (await chrome.action.getTitle({})).endsWith(' is off')));
+    const other = await openTab(worker, A, 'other', { active: false });
+    await clickButton(worker, tab.id);
+    await clickButton(worker, tab.id, 'close-others');
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    assert.equal(await overlayOpen(browser), false);
+    assert.equal(await worker.run((id) => chrome.tabs.get(id).then(() => true, () => false), other), true);
+    assert.equal((await tabsIn(worker, A)).length, 2);
   });
 
   test('over a page the browser keeps to itself the overlay opens as a tab beside it, which Escape closes', async () => {
@@ -910,33 +856,6 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
     await waitFor(async () => (await overlayResults(frame))[0]?.kind === 'Open');
     await frame.press('Enter', { wait: false });
     await waitFor(() => worker.run(async (windowId) => (await chrome.tabs.query({ windowId })).some((tab) => tab.url.endsWith('/my%23report.html') && tab.status === 'complete'), A));
-  });
-
-  test('the button\'s second click on a page the overlay cannot be drawn over leaves the overlay in its place', async () => {
-    const { worker, browser } = await open();
-    const { windows: [, B] } = await twoWindowsWithPins(worker);
-    await focus(worker, B);
-    const own = (await tabsIn(worker, B)).find((tab) => !tab.pinned).id;
-    // Without the page granted by a shortcut or click, the overlay cannot be
-    // drawn over it and takes the tab's place.
-    await clickButton(browser, worker, own);
-    await waitFor(async () => {
-      const tabs = await tabsIn(worker, B);
-      return !tabs.some((tab) => tab.id === own)
-        && tabs.some((tab) => tab.active && !tab.pinned && tab.url.includes('/src/overlay.html?mode=tab'));
-    });
-    // An address picked there opens in that same tab.
-    // Vivaldi leaves a page that is attached to while it loads unanswered.
-    await waitFor(() => worker.run(async (id) => (await chrome.tabs.query({ windowId: id, active: true }))[0]?.status === 'complete', B));
-    const page = await browser.page((url) => url.includes('/src/overlay.html?mode=tab'));
-    await waitFor(() => page.run(() => document.activeElement?.id === 'query'));
-    await typeInto(page, pageUrl('there').replace('http://', ''));
-    await waitFor(async () => (await overlayResults(page))[0]?.kind === 'Open');
-    await page.press('Enter', { wait: false });
-    await waitFor(async () => {
-      const tabs = (await tabsIn(worker, B)).filter((tab) => !tab.pinned);
-      return tabs.length === 1 && tabs[0].title === 'there';
-    }).catch(async (error) => assert.fail(`${error.message}\n${JSON.stringify(await tabsIn(worker, B))}`));
   });
 
   overlayTest('the overlay opens a private window', async () => {

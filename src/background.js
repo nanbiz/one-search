@@ -1,7 +1,6 @@
 import { isCtrlT, overlayShortcut } from './shortcut.js';
-import { closeTabs, overlayReady, replaceNewTab, showClosableCount, toggleOverlay } from './tools.js';
+import { closeOtherTabs, overlayReady, replaceNewTab, toggleOverlay } from './tools.js';
 import { keepLearningSearch, learnFromPage, learnSearch, retryUnfound } from './site-search.js';
-import { retirePins } from './retire-pins.js';
 
 const normalWindows = { windowTypes: ['normal'] };
 
@@ -36,12 +35,8 @@ async function buttonIcon(grey) {
 async function showSwitch() {
   const { name, action } = chrome.runtime.getManifest();
   await chrome.contextMenus.update('on', { checked: on }).catch(() => {});
+  await chrome.contextMenus.update('close-others', { enabled: on }).catch(() => {});
   await chrome.action.setTitle({ title: on ? action.default_title : `${name} is off` });
-  if (on) {
-    for (const window of await chrome.windows.getAll(normalWindows)) countIn(window.id);
-  } else {
-    for (const tab of await chrome.tabs.query({})) await chrome.action.setBadgeText({ tabId: tab.id, text: '' }).catch(() => {});
-  }
   try {
     await chrome.action.setIcon({ imageData: await buttonIcon(!on) });
   } catch (error) {
@@ -61,21 +56,19 @@ async function applySwitch(next) {
 
 function createSwitchMenu() {
   chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({ id: 'close-others', title: 'Close other tabs', enabled: on !== false, contexts: ['action'] });
     chrome.contextMenus.create({ id: 'on', type: 'checkbox', title: 'On', checked: on !== false, contexts: ['action'] });
   });
 }
 chrome.runtime.onStartup.addListener(createSwitchMenu);
-chrome.contextMenus.onClicked.addListener((info) => {
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId === 'close-others' && tab && await switchRead && on) closeOtherTabs(tab);
   if (info.menuItemId === 'on') chrome.storage.local.set({ off: !info.checked });
 });
 chrome.storage.local.onChanged.addListener(({ off }) => {
   if (off) applySwitch(!off.newValue);
 });
 switchRead.then(() => (on ? null : showSwitch())).catch(() => {});
-
-// Pins kept by versions that shared them across windows.
-retirePins().catch(() => {});
-chrome.windows.onCreated.addListener(() => retirePins().catch(() => {}), normalWindows);
 
 // Once after installation the page that puts the overlay on Ctrl+T opens,
 // unless it is there already. The browser can report the installation before
@@ -151,6 +144,9 @@ chrome.windows.onCreated.addListener(() => promptSetup(), normalWindows);
 chrome.alarms.create('keep-warm', { periodInMinutes: 0.5 });
 chrome.alarms.onAlarm.addListener(() => {});
 
+// Versions up to 1.1.14 kept a list of pinned tabs and a log about it.
+chrome.storage.local.remove(['pins', 'trace']).catch(() => {});
+
 // Versions that listed the tabs while Alt was held registered a page script
 // for it, which outlives an update.
 chrome.scripting.unregisterContentScripts({ ids: ['tab-switcher'] }).catch(() => {});
@@ -165,21 +161,20 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (message?.type === 'openSearchText' && sender.tab && sender.frameId === 0) learnFromPage(sender.url, message.text).catch(() => {});
   if (message?.type === 'openSetup') openSetup(message.windowId);
   if (message?.type === 'overlayReady') overlayReady(message.tabId, message.frameStarted, message.ready, message.loaded);
-  if (message?.type === 'closeTabs') {
-    chrome.tabs.get(message.tabId).then((tab) => closeTabs(tab, { othersOnly: message.othersOnly === true })).catch(() => {});
+  if (message?.type === 'closeOtherTabs') {
+    chrome.tabs.get(message.tabId).then((tab) => closeOtherTabs(tab)).catch(() => {});
   }
 });
 
 // The overlay opens on the extension's shortcut, which the user can put on
-// Ctrl+T, and the toolbar button closes the window's other tabs, showing how
-// many it would close.
+// Ctrl+T, and on a click on the toolbar button.
 chrome.commands.onCommand.addListener(async (command, tab) => {
   if (command !== 'open-overlay') return;
   if (await switchRead && on) toggleOverlay(tab);
   else await chrome.tabs.create({ windowId: tab?.windowId });
 });
 chrome.action.onClicked.addListener(async (tab) => {
-  if (await switchRead && on) closeTabs(tab);
+  if (await switchRead && on) toggleOverlay(tab);
 });
 
 // A New Tab page becomes the overlay. The selected tab of each window and the
@@ -206,18 +201,3 @@ switchRead.then(async () => {
   if (!on) return;
   for (const tab of await chrome.tabs.query({})) replaceNewTab(tab, tab.pendingUrl || tab.url, undefined, { found: true });
 });
-function countIn(windowId) {
-  if (on) showClosableCount(windowId);
-}
-chrome.tabs.onActivated.addListener(({ windowId }) => countIn(windowId));
-chrome.tabs.onCreated.addListener(({ windowId }) => countIn(windowId));
-chrome.tabs.onRemoved.addListener((tabId, { windowId, isWindowClosing }) => {
-  if (!isWindowClosing) countIn(windowId);
-});
-// Chromium clears a tab's badge when the tab navigates, so the count is
-// shown again whenever a page starts or finishes loading.
-chrome.tabs.onUpdated.addListener((tabId, change, { windowId }) => {
-  if ('pinned' in change || 'groupId' in change || 'status' in change) countIn(windowId);
-});
-chrome.tabs.onAttached.addListener((tabId, { newWindowId }) => countIn(newWindowId));
-chrome.tabs.onDetached.addListener((tabId, { oldWindowId }) => countIn(oldWindowId));

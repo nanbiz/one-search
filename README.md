@@ -49,13 +49,13 @@ From then on Ctrl+T opens the search and no new tab. A copy loaded unpacked has 
 
 ## The toolbar button
 
-A click closes every tab of the window that is neither pinned nor in a tab group, apart from the one you are on; its badge shows how many that is. Click again and the search opens over the last tab, which gives way to whatever you pick.
+A click opens the search over the page you are on.
 
-Right-click it and untick **On** to switch the extension off.
+Right-click it for **Close other tabs**, which closes every tab of the window that is neither pinned nor in a tab group, apart from the one you are on. Untick **On** there to switch the extension off.
 
 ## Coming from Zen Essentials in Chrome
 
-Pinned tabs are no longer shared between windows; they work as your browser handles them. Helium shares them itself since 0.22.2. The first start after the update opens your pinned pages that are not open, once, as ordinary pinned tabs.
+Pinned tabs are no longer shared between windows; they work as your browser handles them. Helium shares them itself since 0.22.2.
 
 ## Permissions
 
@@ -65,7 +65,7 @@ Pinned tabs are no longer shared between windows; they work as your browser hand
 - `search` sends a search to your browser's default search engine.
 - `storage` keeps settings, the searches of sites and unfinished text.
 - `alarms` keeps the extension ready, so the search opens without a delay.
-- `contextMenus` adds **On** to the button's right-click menu.
+- `contextMenus` adds **Close other tabs** and **On** to the button's right-click menu.
 - Asked for only when you allow them: `history` and `bookmarks` to search them, and access to all sites to open over the page for every new tab and to learn the searches of sites you visit.
 
 Nothing is collected; see [PRIVACY.md](PRIVACY.md).

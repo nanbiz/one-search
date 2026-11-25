@@ -21,7 +21,7 @@
     "type": "module"
   },
   "action": {
-    "default_title": "Close the other tabs",
+    "default_title": "Search",
     "default_icon": {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png"

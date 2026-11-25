@@ -24,7 +24,7 @@ Every tab, one key. Hold Alt to see all tabs of the window, each with a key to j
 
 New tabs without the clutter. The + button's new tab becomes the search as well, and Escape takes you back to where you were.
 
-Clear the rest. The toolbar button closes the window's other tabs and shows how many. Pinned tabs and tab groups stay.
+Clear the rest. Right-click the toolbar button and pick Close other tabs. Pinned tabs and tab groups stay.
 
 It opens with Ctrl+Shift+Space, and on Ctrl+T after a short guided setup in browsers that allow it. In Vivaldi, which keeps Ctrl+T, its new tab becomes the search instead.
 
@@ -37,13 +37,13 @@ Nothing is collected or sent anywhere. Source: https://github.com/nanbiz/one-sea
 ## Privacy practices
 
 - Single purpose: One search bar, opened instead of a new tab, to open, find and manage tabs.
-- tabs: Reads the address, title and icon of the user's open tabs to list and suggest them while the search is open, and to count and close tabs for the toolbar button.
+- tabs: Reads the address, title and icon of the user's open tabs to list and suggest them while the search is open, and to close the window's other tabs when they ask for it.
 - storage: Keeps settings, the search addresses of sites, how long recent openings took and, for the session, unfinished text and a copy of history and bookmarks the user allowed.
 - favicon: Shows the icons of suggested sites from the browser's own favicon store.
 - alarms: Keeps the extension's worker running so the search opens without a delay.
-- contextMenus: Adds an on/off entry to the toolbar button's right-click menu.
-- activeTab: Lets the search be drawn over the page the user is on, only after the user presses its keyboard shortcut there.
-- scripting: Inserts the search into the page the user is on when the user presses its keyboard shortcut; nothing is read from the page. Where the user allowed all sites, also reads the site's OpenSearch description so the site can be searched.
+- contextMenus: Adds Close other tabs and an on/off entry to the toolbar button's right-click menu.
+- activeTab: Lets the search be drawn over the page the user is on, only after the user presses its keyboard shortcut or toolbar button there.
+- scripting: Inserts the search into the page the user is on when the user presses its keyboard shortcut or toolbar button; nothing is read from the page. Where the user allowed all sites, also reads the site's OpenSearch description so the site can be searched.
 - search: Sends a search the user picks in the search to the browser's default search engine.
 - history (optional, asked for from the search): Lets the search suggest sites and pages the user visited for what they type, once the user allows it; held in session storage, never sent.
 - bookmarks (optional, asked for from the search): Lets the search suggest the user's bookmarks for what they type, once the user allows it; held in session storage, never sent.
