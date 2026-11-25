@@ -25,6 +25,8 @@ New tab overlay. Press Ctrl+Shift+Space, or Ctrl+T once you set it up from the o
 
 Clearing tabs. The toolbar button closes every tab of its window that is neither pinned nor in a tab group, apart from the one you are on, and shows how many. Click it again and the overlay opens over the tab you are on, which gives way to whatever you pick there.
 
+On request we'll extend to Firefox: https://github.com/nanbiz/synced-pins/issues
+
 Nothing is collected or sent anywhere. Source: https://github.com/nanbiz/synced-pins
 
 ## Privacy practices

@@ -3,7 +3,7 @@
   "name": "Zen Essentials in Chrome",
   "short_name": "Zen Essentials",
   "version": "1.1.14",
-  "description": "Pinned tabs shared by every window, a new tab overlay that opens nothing until you pick, and one click to clear the other tabs.",
+  "description": "Spotlight-Like Search that fixes New Tab + Search for all Chromium Browsers",
   "minimum_chrome_version": "127",
   "permissions": [
     "tabs",
