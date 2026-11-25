@@ -407,6 +407,13 @@ function tabsIn(worker, windowId) {
   })), windowId);
 }
 
+test('the bar drawn in the page has the icon of the overlay that takes its place', async () => {
+  const read = (path) => readFile(new URL(`../src/${path}`, import.meta.url), 'utf8');
+  const drawn = (markup) => [...markup.matchAll(/(viewBox|fill|stroke[\w-]*|[rd]|c[xy])="([^"]*)"/g)].map(([pair]) => pair).sort();
+  const [inPage] = (await read('tools.js')).match(/<svg[^']*<\/svg>/);
+  assert.deepEqual(drawn(inPage), drawn(await read('search.svg')));
+});
+
 describe('overlay and toolbar button', { skip, concurrency: 1 }, () => {
   overlayTest('letters typed between the shortcut and the overlay being ready go to its field, not to the page', async (context) => {
     const { worker, browser } = await open();

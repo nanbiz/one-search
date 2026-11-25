@@ -80,7 +80,8 @@ function toggleInPage(path, query, openOnly = false, deadline = 0) {
   // it, so the overlay appears with the key press however long its own frame
   // takes to load on a busy page; the frame takes its place once it has drawn
   // the same bar. It sits in a closed shadow root, out of the page's reach
-  // and styles, and matches overlay.css's box and bar.
+  // and styles, and matches overlay.css's box and bar, with search.svg written
+  // out in it.
   const shell = document.createElement('div');
   shell.style.cssText = 'all:initial;position:absolute;inset:0';
   const shellRoot = shell.attachShadow({ mode: 'closed' });
@@ -94,7 +95,7 @@ function toggleInPage(path, query, openOnly = false, deadline = 0) {
     + '.text:empty::before{content:"Search or enter address";color:#71717a}'
     + '@media (prefers-color-scheme:dark){.box{background:#1f1f23;color:#e4e4e7;border-color:#34343a}.text:empty::before{color:#8b8b93}}'
     + '</style><div class="box"><div class="bar">'
-    + '<svg viewBox="0 0 16 16" fill="none" stroke="#8b8b93" stroke-width="1.6" stroke-linecap="round"><circle cx="7" cy="7" r="4.6"/><path d="m10.4 10.4 3.6 3.6"/></svg>'
+    + '<svg viewBox="0 0 24 24" fill="none" stroke="#8b8b93" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>'
     + '<span class="text"></span></div></div>';
   const shellText = shellRoot.querySelector('.text');
   let ready = false;
