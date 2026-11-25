@@ -48,7 +48,7 @@ async function openOverlayTab(windowId, open) {
 // blurred as Zen does, or closes it where it is open already. Runs in the
 // page, so it is self-contained.
 function toggleInPage(path, query, openOnly = false, deadline = 0) {
-  const id = 'synced-pins-overlay';
+  const id = 'one-search-overlay';
   const open = document.getElementById(id);
   // A page that got to this after the worker stopped waiting for it has had
   // the overlay opened as a tab instead.
@@ -189,7 +189,7 @@ function toggleInPage(path, query, openOnly = false, deadline = 0) {
   // The frame shows once the overlay in it has drawn its bar.
   function onMessage(event) {
     if (event.source !== frame.contentWindow) return;
-    if (event.data === 'synced-pins:ready') {
+    if (event.data === 'one-search:ready') {
       escapeHeld.then(() => {
         if (!dialog.isConnected) return;
         ready = true;
@@ -199,14 +199,14 @@ function toggleInPage(path, query, openOnly = false, deadline = 0) {
         show(true);
         frame.focus();
         release();
-        if (held) frame.contentWindow.postMessage({ syncedPinsTyped: held }, '*');
+        if (held) frame.contentWindow.postMessage({ oneSearchTyped: held }, '*');
       });
     }
-    if (event.data === 'synced-pins:hide') {
+    if (event.data === 'one-search:hide') {
       show(false);
-      requestAnimationFrame(() => requestAnimationFrame(() => frame.contentWindow?.postMessage('synced-pins:hidden', '*')));
+      requestAnimationFrame(() => requestAnimationFrame(() => frame.contentWindow?.postMessage('one-search:hidden', '*')));
     }
-    if (event.data === 'synced-pins:close') close();
+    if (event.data === 'one-search:close') close();
   }
   window.addEventListener('message', onMessage);
   // An overlay that never gets ready leaves no invisible frame over the page.
@@ -371,7 +371,7 @@ function openOverPicture(tab) {
 // Closes the overlay over a page the way its own close does. Runs in the
 // page.
 function closeInPage() {
-  document.getElementById('synced-pins-overlay')?.dispatchEvent(new Event('close'));
+  document.getElementById('one-search-overlay')?.dispatchEvent(new Event('close'));
 }
 
 export async function toggleOverlay(tab) {

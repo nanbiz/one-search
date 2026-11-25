@@ -2,7 +2,7 @@
 # Runs the end-to-end suite with a headed Chromium on a private Xvfb display.
 # Headless Chromium reports every window as focused and fires no focus
 # events, so the focus-dependent behaviour can only be tested headed.
-# CHROME_PATH picks the browser. SYNCED_PINS_LOAD=cdp loads the extension
+# CHROME_PATH picks the browser. ONE_SEARCH_LOAD=cdp loads the extension
 # over the DevTools protocol, for browsers that ignore --load-extension such
 # as branded Google Chrome. The run ends once every test has reported, even
 # where a browser process that outlived its kill still holds something open.
@@ -13,6 +13,6 @@ if ! command -v xvfb-run >/dev/null; then
   exit 1
 fi
 unset WAYLAND_DISPLAY
-export SYNCED_PINS_XVFB=1
+export ONE_SEARCH_XVFB=1
 exec xvfb-run --auto-servernum --server-args='-screen 0 1600x1000x24 -nolisten tcp' \
   node --test --test-concurrency=1 --test-force-exit "$@" test/*.test.js

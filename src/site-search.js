@@ -42,7 +42,7 @@ function sameSite(host, site) {
 // The template with {{{s}}} for {searchTerms} and its optional parameters,
 // written {name?}, left out; null for an address that is not on the web.
 function withoutOptional(template) {
-  const marker = 'synced-pins-search-terms';
+  const marker = 'one-search-search-terms';
   let url;
   try {
     url = new URL(template.replaceAll('{searchTerms}', marker));

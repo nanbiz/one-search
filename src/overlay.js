@@ -273,7 +273,7 @@ function addressOf(text) {
 }
 
 function close() {
-  if (mode === 'frame') window.parent.postMessage('synced-pins:close', '*');
+  if (mode === 'frame') window.parent.postMessage('one-search:close', '*');
 }
 
 // Leaving without a choice. The overlay that took a New Tab page's place goes
@@ -567,11 +567,11 @@ async function pick(index) {
         resolve();
       };
       const onHidden = (event) => {
-        if (event.source === window.parent && event.data === 'synced-pins:hidden') done();
+        if (event.source === window.parent && event.data === 'one-search:hidden') done();
       };
       window.addEventListener('message', onHidden);
       setTimeout(done, 100);
-      window.parent.postMessage('synced-pins:hide', '*');
+      window.parent.postMessage('one-search:hide', '*');
     });
   }
   await forgetQuery();
@@ -638,8 +638,8 @@ function uncomplete() {
 // so they go in front of it, or in place of a kept query still selected.
 let typedHere = false;
 window.addEventListener('message', (event) => {
-  if (event.source !== window.parent || typeof event.data?.syncedPinsTyped !== 'string') return;
-  const text = event.data.syncedPinsTyped;
+  if (event.source !== window.parent || typeof event.data?.oneSearchTyped !== 'string') return;
+  const text = event.data.oneSearchTyped;
   if (typedHere) query.setRangeText(text, 0, 0, 'preserve');
   else query.setRangeText(text, query.selectionStart, query.selectionEnd, 'end');
   query.dispatchEvent(new InputEvent('input', { inputType: 'insertText', data: text }));
@@ -1024,7 +1024,7 @@ async function start() {
   // before then gets its history rows when the index is ready.
   requestAnimationFrame(() => {
     if (mode === 'frame') {
-      window.parent.postMessage('synced-pins:ready', '*');
+      window.parent.postMessage('one-search:ready', '*');
       chrome.runtime.sendMessage({ type: 'overlayReady', tabId: target.id, frameStarted: performance.timeOrigin, loaded, ready: Date.now() }).catch(() => {});
     }
     setTimeout(remember);

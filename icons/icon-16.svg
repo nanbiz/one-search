@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
-  <title>Synced Pins</title>
+  <title>One Search</title>
   <!-- Toolbar size, drawn pixel by pixel: square steps are whole pixels, the four
        diagonal cuts are half pixels, the needle is a one-pixel staircase. -->
   <path fill="#E0512A" d="M2 0H11A2 2 0 0 1 13 2H5A3 3 0 0 0 2 5V13A2 2 0 0 1 0 11V2A2 2 0 0 1 2 0Z"/>

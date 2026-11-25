@@ -12,8 +12,8 @@ const executable = findBrowserExecutable();
 const skip = executable ? false : 'no browser: set CHROME_PATH or put chromium on PATH';
 
 // Helium keeps the pinned tabs of every window alike itself;
-// SYNCED_PINS_HELIUM_PINS=1 runs the suite with that on.
-const browserSharesPins = process.env.SYNCED_PINS_HELIUM_PINS === '1';
+// ONE_SEARCH_HELIUM_PINS=1 runs the suite with that on.
+const browserSharesPins = process.env.ONE_SEARCH_HELIUM_PINS === '1';
 const unshared = browserSharesPins ? 'the browser adds pinned tabs of its own' : false;
 
 // Starting a browser and its extension worker takes several seconds on a busy
@@ -438,12 +438,12 @@ function overlayResults(frame) {
   })));
 }
 
-// A picture of page A, for SYNCED_PINS_SHOTS=<folder>.
+// A picture of page A, for ONE_SEARCH_SHOTS=<folder>.
 async function shoot(browser, name) {
-  if (!process.env.SYNCED_PINS_SHOTS) return;
+  if (!process.env.ONE_SEARCH_SHOTS) return;
   const page = await browser.page(pageUrl('A'));
   const { data } = await browser.connection.send('Page.captureScreenshot', { format: 'png' }, page.sessionId);
-  await writeFile(join(process.env.SYNCED_PINS_SHOTS, `${name}.png`), Buffer.from(data, 'base64'));
+  await writeFile(join(process.env.ONE_SEARCH_SHOTS, `${name}.png`), Buffer.from(data, 'base64'));
 }
 
 function tabsIn(worker, windowId) {
@@ -557,10 +557,10 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
       const bar = await shellBar();
       return bar?.text === 'gh' ? bar : null;
     });
-    assert.equal(await page.run(() => document.getElementById('synced-pins-overlay').dataset.ready), undefined);
+    assert.equal(await page.run(() => document.getElementById('one-search-overlay').dataset.ready), undefined);
     await current.browser.connection.send('Runtime.runIfWaitingForDebugger', {}, paused);
     const frame = await overlayFrame(browser);
-    await waitFor(() => page.run(() => document.getElementById('synced-pins-overlay').dataset.ready === '1'));
+    await waitFor(() => page.run(() => document.getElementById('one-search-overlay').dataset.ready === '1'));
     await waitFor(() => frame.run(() => document.getElementById('query').value.startsWith('gh')));
     await waitFor(() => frame.run(() => document.getAnimations().length === 0));
     const box = await frame.run(() => {
@@ -605,7 +605,7 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
     await waitFor(() => overlay.run(() => document.body?.classList.contains('picture') === true));
     // The page's own code, run once the page is free, opens nothing more.
     await new Promise((resolve) => setTimeout(resolve, 1200));
-    assert.equal(await page.run(() => document.getElementById('synced-pins-overlay')), null);
+    assert.equal(await page.run(() => document.getElementById('one-search-overlay')), null);
     await current.browser.connection.send('Emulation.setFocusEmulationEnabled', { enabled: true }, overlay.sessionId);
     await waitFor(() => overlay.run(() => document.activeElement?.id === 'query'));
     await overlay.press('Escape', { wait: false });
@@ -1015,9 +1015,9 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
     await waitFor(() => page.run(() => document.fullscreenElement?.id === 'player'));
     const frame = await pressOverlayShortcut(browser, 'A');
     await waitFor(() => frame.run(() => document.activeElement?.id === 'query'));
-    await waitFor(() => page.run(() => document.getElementById('synced-pins-overlay')?.dataset.ready === '1'));
+    await waitFor(() => page.run(() => document.getElementById('one-search-overlay')?.dataset.ready === '1'));
     // The overlay is drawn over the player, not under it.
-    assert.equal(await page.run(() => document.elementFromPoint(innerWidth / 2, innerHeight / 2)?.closest('#synced-pins-overlay') !== null), true);
+    assert.equal(await page.run(() => document.elementFromPoint(innerWidth / 2, innerHeight / 2)?.closest('#one-search-overlay') !== null), true);
     // The key goes in through the page, the way the keyboard sends it. In
     // full screen with the keyboard held Chrome at times never confirms the
     // key event, so the outcome is waited for instead.
@@ -1039,7 +1039,7 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
   overlayTest('with history allowed, a typed site comes first and visited pages after the tabs', async () => {
     // A copy that asks for history and bookmarks up front, which an unpacked
     // extension is granted without the dialog the overlay's Include opens.
-    const copy = await mkdtemp(join(tmpdir(), 'synced-pins-history-'));
+    const copy = await mkdtemp(join(tmpdir(), 'one-search-history-'));
     try {
       await cp(extensionPath, copy, { recursive: true, filter: (path) => !/\/(node_modules|dist|\.git)(\/|$)/.test(path) });
       const manifest = JSON.parse(await readFile(join(copy, 'manifest.json'), 'utf8'));
@@ -1096,7 +1096,7 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
   });
 
   overlayTest('Tab on a site with a search of its own searches that site', async () => {
-    const copy = await mkdtemp(join(tmpdir(), 'synced-pins-history-'));
+    const copy = await mkdtemp(join(tmpdir(), 'one-search-history-'));
     try {
       await cp(extensionPath, copy, { recursive: true, filter: (path) => !/\/(node_modules|dist|\.git)(\/|$)/.test(path) });
       const manifest = JSON.parse(await readFile(join(copy, 'manifest.json'), 'utf8'));
@@ -1134,7 +1134,7 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
   });
 
   test('a site behind a login has its search learned with the page\'s session', async () => {
-    const copy = await mkdtemp(join(tmpdir(), 'synced-pins-learn-'));
+    const copy = await mkdtemp(join(tmpdir(), 'one-search-learn-'));
     try {
       await cp(extensionPath, copy, { recursive: true, filter: (path) => !/\/(node_modules|dist|\.git)(\/|$)/.test(path) });
       const manifest = JSON.parse(await readFile(join(copy, 'manifest.json'), 'utf8'));
@@ -1431,7 +1431,7 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
   overlayTest('with pages allowed, a New Tab page goes and the overlay opens over the page before it', async () => {
     // A copy that asks for every page up front, which an unpacked extension
     // is granted without the dialog the overlay's Allow opens.
-    const copy = await mkdtemp(join(tmpdir(), 'synced-pins-pages-'));
+    const copy = await mkdtemp(join(tmpdir(), 'one-search-pages-'));
     try {
       await cp(extensionPath, copy, { recursive: true, filter: (path) => !/\/(node_modules|dist|\.git)(\/|$)/.test(path) });
       const manifest = JSON.parse(await readFile(join(copy, 'manifest.json'), 'utf8'));

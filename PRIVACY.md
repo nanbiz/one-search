@@ -1,19 +1,21 @@
 # Privacy
 
-Zen Essentials in Chrome does not collect, send or share any data. The only network requests it causes are its stand-in pages loading each pinned site's own icon, the same one the browser shows for that tab, and a search you choose in its new tab overlay, which goes to your browser's default search engine as a search from the address bar would. Where a site does not let other pages load its icon, the stand-in pages take it from the browser's own store of site icons instead.
+One Search To Rule Them All does not collect, send or share any data about you. Everything below stays in your browser.
 
-To show your pinned tabs in every window, it reads the address, title and icon of the tabs you pin. It keeps that list in the browser's session storage, which is cleared when the browser quits, and in the address of its own stand-in pages, so the browser can restore them with your session. The address, title and icon of each pinned tab also stay in the extension's local storage, so the pin comes back when the browser starts again, until you unpin that tab or remove the extension.
+While the search is open, it reads the address, title and icon of your open tabs to list and suggest them, and loads the icons of the sites it shows, as the browser does for its tabs. A search you pick goes to your browser's default search engine, or to the site you chose to search. An address you pick opens as if you had typed it.
 
-While its new tab overlay is open, it reads the address, title and icon of your open tabs to suggest them as you type, and keeps none of them. Text you typed into the overlay and left without choosing anything stays in session storage for 45 seconds, so reopening the overlay over the same tab brings it back. The overlay is drawn over a page only after you press its shortcut there; it reads nothing from the page. The toolbar button counts and closes the tabs of its window and reads nothing else about them.
+Text you typed and left without choosing anything stays in the browser's session storage, and comes back if you open the search over the same tab within 45 seconds. Session storage is cleared when the browser quits.
 
-For the last 20 times the overlay opened over a page, it keeps that page's site name and how long each step of the opening took, in local storage, so a slow opening can be looked into; none of it leaves the browser.
+The search is drawn over a page after you press its shortcut there, or over the page you were on when you open a new tab, if you allow that. On a page too busy to draw it, it opens as a tab over a picture of that page, which is held in session storage until shown. On a page it cannot be drawn over, it notes that page's address and the reason in session storage.
 
-If you allow it to open over any page, it draws the overlay over the page you were on when you open a new tab, and reads nothing from that page.
+If you allow it to open over any page, it also looks on the pages you visit for the site's own search description (OpenSearch), so you can search that site with Tab. It requests that description from the site itself, with your session there only where the description is on the same address as the page, and keeps the site's name and search address in local storage. It reads nothing else from pages.
 
-If you allow it to read your history and bookmarks, from the row the overlay offers for it, the overlay searches them for what you type while it is open, in the browser, and keeps none of it.
+If you allow history and bookmarks, it searches them for what you type. A copy of their addresses, titles and visit counts is held in session storage so the search opens at once.
 
-To find the cause of a pin that went wrong, the extension keeps a log of its recent decisions about pinned tabs in local storage, naming tabs, windows and pins by the browser's internal numbers only, without any address or title.
+For the last 20 times it opened over a page, it keeps that page's site name and how long each step took in local storage, so a slow opening can be looked into.
 
-It reads nothing from the pages themselves.
+The toolbar button counts and closes the tabs of its window.
 
-Questions go to the [issue tracker](https://github.com/nanbiz/synced-pins/issues).
+Versions up to 1.1.14, named Zen Essentials in Chrome, also kept the address, title and icon of your pinned tabs in local storage, and a log of decisions about them, to show them in every window. Later versions delete both once they have opened the pinned pages that were not open.
+
+Removing the extension removes all of this. Questions go to the [issue tracker](https://github.com/nanbiz/one-search/issues).

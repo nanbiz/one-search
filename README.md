@@ -1,45 +1,43 @@
-# Zen Essentials in Chrome
+# One Search To Rule Them All
 
-A Chrome extension that brings the tab handling of the Zen browser to Chromium-based browsers: the same pinned tabs in every window, like Zen's Essentials, a new tab overlay that opens no tab until you pick where to go, and a toolbar button that clears away the other tabs.
+Spotlight-Like Search that fixes New Tab + Search for all Chromium Browsers.
 
-![Selecting a pinned tab in the second window brings the page over](docs/demo.webp)
+Press Ctrl+T and a search bar opens over the page you are on. No tab opens until you pick something: an open tab, an address, a search, a page from your history or a browser action.
+
+![The search over a page, with the keys of the window's tabs](store/screenshot-3.png)
 
 ## Install
 
-From the [Chrome Web Store](https://chromewebstore.google.com/detail/ofcghgcepialnjkeghndofphhdaokdeg), or from the [Releases](https://github.com/nanbiz/synced-pins/releases) page: unzip `synced-pins-<version>.zip`, open `chrome://extensions`, turn on Developer mode, click **Load unpacked** and pick the unzipped folder. It is built for Chromium-based browsers and tested in Chrome, Chromium, Brave, Edge, Vivaldi and Helium.
+From the [Chrome Web Store](https://chromewebstore.google.com/detail/ofcghgcepialnjkeghndofphhdaokdeg), or from the [Releases](https://github.com/nanbiz/one-search/releases) page: unzip `one-search-<version>.zip`, open `chrome://extensions`, turn on Developer mode, click **Load unpacked** and pick the unzipped folder. It is built for Chromium-based browsers and tested in Chrome, Chromium, Brave, Edge, Vivaldi and Helium.
 
-On request we'll extend to Firefox: [open an issue](https://github.com/nanbiz/synced-pins/issues).
+On request we'll extend to Firefox: [open an issue](https://github.com/nanbiz/one-search/issues).
 
-## Pinned tabs in every window
+## Search
 
-Each pinned tab is open in one window. Your other windows show it in the same place, with its icon, and selecting it there brings the page over as it is: nothing reloads, a video keeps playing, a half-typed message stays. Switching to a window that shows a pinned tab brings the page back there too. A window showing one of its own tabs takes nothing, so a pinned tab can keep running in one window while you work in another.
+It opens with **Ctrl+Shift+Space**, or with **Ctrl+T** once you [put it there](#putting-it-on-ctrlt).
 
-- Pin a tab in any window and it shows up pinned in all of them. Reordering pinned tabs works the same way from any window.
-- Unpin a pinned tab in any window to remove it from all of them. Unpinning one that shows a stand-in brings its page into that window as an ordinary tab.
-- Closing a pinned tab closes its page, but the pin stays, as Zen does with Essentials: every window keeps showing it, and the next time you select it, it opens at the address it was pinned at. Reopening the closed tab right away (Ctrl+Shift+T) brings the page back. Chromium closes a pinned tab on the second Ctrl+W.
-- Putting a pinned tab into a tab group unpins it in Chromium, as when an extension like Claude groups the tab it works in. The page goes with the group as an ordinary tab, and the pin stays as if its tab had been closed. Pinning that tab again makes it the pin's tab once more.
-- In a window where a pinned tab is not open, its place holds a stand-in page with the tab's icon and title. That is what a window shows when the tab it was showing is pulled into another window.
-- Close the window a pinned tab is open in and the tab opens again in the window you used last, at the same address.
-- Pinned tabs stay across a browser restart or crash. Any the browser does not bring back open again in the window you used last, in the same order. If the browser restores its old session afterwards, its tab takes the place of the reopened one, as long as you have not selected that one yet.
-- Popups, installed web apps and incognito windows are left alone.
+- **Tabs:** with nothing typed it lists the window's tabs. Type part of a title or address to switch to a tab in any window.
+- **Addresses and searches:** type one and press Enter. Searches go to your browser's default search engine.
+- **One site:** pick a site that has its own search, press Tab and search it directly.
+- **History and bookmarks:** click **Include** once. Sites you visited then come first as you type their name (*y* offers youtube.com).
+- **Actions:** type *pin tab*, *duplicate*, *reload*, *copy current url*, *close other tabs*, *private window*, *print* and more.
+- **Browser pages:** type *downloads*, *settings*, *extensions*, *passwords* and more.
 
-## New tab overlay
+Escape or a click beside the bar closes it. Text you typed comes back if you open it over the same tab within 45 seconds.
 
-Press **Ctrl+Shift+Space** and a search bar opens in the middle of the page instead of a new tab. Nothing is opened until you pick something:
+### Alt
 
-- With nothing typed it lists your pinned tabs.
-- A tab opened with the tab strip's **+** or the menu, on the New Tab page, becomes the overlay too; Escape closes it and goes back to the tab you were on. Once you click **Allow** on its *Open over the page instead of a tab* row, the New Tab page closes at once and the overlay opens over the page you were on.
-- Type an address or a search and press Enter to open it in a new tab. The search goes to your browser's default search engine.
-- Type part of a tab's title or address to switch to that tab, in any window. Picking a pinned tab brings its page into the window you are in.
-- Once you click **Include** on the overlay's *History and bookmarks* row and allow it, a site you have visited whose name starts with what you type comes first (*y* offers youtube.com), and visited pages and bookmarks follow the open tabs.
-- Type the name of an action, such as *pin tab*, *close tab*, *duplicate*, *reload*, *copy current url*, *next tab*, *private window*, *print* or *settings*, to run it on the tab under the overlay.
-- Escape or a click beside the bar closes it. Text you typed comes back if you open it again over the same tab within 45 seconds.
+Hold or tap Alt to see every tab of the window with a key. Press that key to go there, or use the arrows, which start at the current tab, and Enter. Tap Alt again to type.
 
-On pages a browser keeps extensions out of, such as its settings or the Web Store, the overlay opens as a tab of its own beside the page. Local files count as such pages, and cannot be opened from the overlay, until you click **Allow** on its *Open local files* row and turn on *Allow access to file URLs*.
+### New tabs
+
+A tab opened with the **+** of the tab strip or the menu becomes the search too, and Escape goes back to the tab you were on. Click **Allow** on *Open over the page instead of a tab* and that tab closes at once, with the search over your page.
+
+On pages a browser keeps extensions out of, such as its settings or the Web Store, the search opens as a tab beside the page. Local files count as such pages until you click **Allow** on *Open local files* and turn on *Allow access to file URLs*.
 
 ### Putting it on Ctrl+T
 
-An extension cannot ask for Ctrl+T, but you can give it the key once. While it is not set, the overlay shows **Set up** at its foot. It opens the browser's shortcuts page (`chrome://extensions/shortcuts`) in a window beside a short guide: click the pencil next to *Open a new tab* and press Ctrl+T. Chrome, Chromium, Brave and Helium take it there; Vivaldi keeps Ctrl+T for its own new tab, which becomes the overlay anyway.
+An extension cannot ask for Ctrl+T, but you can give it the key once. While it is not set, the search shows **Set up** at its foot. It opens the browser's shortcuts page (`chrome://extensions/shortcuts`) in a window beside a short guide: click the pencil next to *Open a new tab* and press Ctrl+T. Chrome, Chromium, Brave and Helium take it there; Vivaldi keeps Ctrl+T for its own new tab, which becomes the search anyway.
 
 Where the shortcuts page does not take it, the guide's **The page won't take Ctrl+T** copies the line below and opens `chrome://extensions`; there, press F12, open **Console**, type `allow pasting` and press Enter, then paste and press Enter:
 
@@ -47,21 +45,30 @@ Where the shortcuts page does not take it, the guide's **The page won't take Ctr
 chrome.developerPrivate.updateExtensionCommand({ extensionId: 'ofcghgcepialnjkeghndofphhdaokdeg', commandName: 'open-overlay', keybinding: 'Ctrl+T' })
 ```
 
-From then on Ctrl+T opens the overlay and no new tab. A copy loaded unpacked has its own id, which `chrome://extensions` shows on its card.
+From then on Ctrl+T opens the search and no new tab. A copy loaded unpacked has its own id, which `chrome://extensions` shows on its card.
 
-## Clearing tabs
+## The toolbar button
 
-The toolbar button closes every tab of its window that is neither pinned nor in a tab group, apart from the one you are on, and its badge shows how many that is. Click it once more and the overlay opens over the tab you are on, which goes for whatever you pick there: an address or search loads in its place, and switching to another tab or pin closes it. Escape keeps it. On a page the overlay cannot be drawn over, the overlay takes the tab's place at once. Pinned tabs and tab groups always stay.
+A click closes every tab of the window that is neither pinned nor in a tab group, apart from the one you are on; its badge shows how many that is. Click again and the search opens over the last tab, which gives way to whatever you pick.
+
+Right-click it and untick **On** to switch the extension off.
+
+## Coming from Zen Essentials in Chrome
+
+Pinned tabs are no longer shared between windows; they work as your browser handles them. Helium shares them itself since 0.22.2. The first start after the update opens your pinned pages that are not open, once, as ordinary pinned tabs.
 
 ## Permissions
 
-- `tabs` lets the extension read the address, title and icon of your tabs: of pinned ones to draw them in your other windows, and of open ones to suggest them in the overlay. Chrome describes this permission as "Read your browsing history".
-- `storage` keeps the list of pinned tabs while the browser runs and across restarts.
-- `favicon` lets the stand-in pages take a pinned site's icon from the browser's own store of site icons where the site lets only its own pages load it. Chrome describes it as "Read the icons of the websites you visit".
-- `activeTab` and `scripting` let the overlay be drawn over the page you are on, only after you press its shortcut there.
-- `search` sends a search you pick in the overlay to your browser's default search engine.
+- `tabs` reads the address, title and icon of your open tabs to list and suggest them. Chrome describes it as "Read your browsing history".
+- `favicon` shows site icons from the browser's own store. Chrome describes it as "Read the icons of the websites you visit".
+- `activeTab` and `scripting` draw the search over the page you are on.
+- `search` sends a search to your browser's default search engine.
+- `storage` keeps settings, the searches of sites and unfinished text.
+- `alarms` keeps the extension ready, so the search opens without a delay.
+- `contextMenus` adds **On** to the button's right-click menu.
+- Asked for only when you allow them: `history` and `bookmarks` to search them, and access to all sites to open over the page for every new tab and to learn the searches of sites you visit.
 
-`activeTab`, `scripting` and `search` add no warning when installing. Nothing is sent anywhere; see [PRIVACY.md](PRIVACY.md).
+Nothing is collected; see [PRIVACY.md](PRIVACY.md).
 
 ## Develop
 
@@ -70,7 +77,7 @@ There are no dependencies. The tests launch a real Chromium with the extension l
 ```
 sh scripts/test-e2e.sh                     # needs chromium and xvfb-run on PATH
 CHROME_PATH=/path/to/browser sh scripts/test-e2e.sh
-node scripts/package.js                    # dist/synced-pins-<version>.zip
+node scripts/package.js                    # dist/one-search-<version>.zip
 ```
 
 Headless Chromium fires no focus events, which is why the suite runs headed.

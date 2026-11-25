@@ -33,7 +33,7 @@ export function extensionIdForPath(path) {
 // XDG_RUNTIME_DIR the browser runs with, so it never reaches the user's
 // session sockets or dotfiles.
 export async function createSandbox() {
-  const root = await mkdtemp(join(tmpdir(), 'synced-pins-e2e-'));
+  const root = await mkdtemp(join(tmpdir(), 'one-search-e2e-'));
   const sandbox = {
     root,
     profile: join(root, 'profile'),
@@ -64,17 +64,17 @@ function browserEnv(sandbox) {
 }
 
 // Branded Google Chrome ignores --load-extension. With
-// SYNCED_PINS_LOAD=cdp the extension is loaded over the DevTools protocol
+// ONE_SEARCH_LOAD=cdp the extension is loaded over the DevTools protocol
 // instead, which the browser allows only with
 // --enable-unsafe-extension-debugging.
-const loadOverDevTools = process.env.SYNCED_PINS_LOAD === 'cdp';
+const loadOverDevTools = process.env.ONE_SEARCH_LOAD === 'cdp';
 
 // The browser runs headed, on the Xvfb display scripts/test-e2e.sh starts;
 // that script marks the environment so no other display is ever used.
 // language names the browser's interface language ("de"), which Linux takes
 // from LANGUAGE and Windows from --lang.
 export async function launchBrowser({ executable, sandbox, extensionPath, language }) {
-  if (!process.env.SYNCED_PINS_XVFB || !process.env.DISPLAY) {
+  if (!process.env.ONE_SEARCH_XVFB || !process.env.DISPLAY) {
     throw new Error('run the suite through scripts/test-e2e.sh, which gives the browser its own Xvfb display');
   }
   const child = spawn(executable, [

@@ -1,4 +1,4 @@
-// Writes dist/synced-pins-<version>.zip holding exactly what the extension
+// Writes dist/one-search-<version>.zip holding exactly what the extension
 // ships: manifest.json, src/ and the PNG icons.
 //
 // The service worker script is named after the version. Chromium keeps
@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const manifest = JSON.parse(readFileSync(join(root, 'manifest.json'), 'utf8'));
 const { version } = manifest;
-const archive = join(root, 'dist', `synced-pins-${version}.zip`);
+const archive = join(root, 'dist', `one-search-${version}.zip`);
 const stage = join(root, 'dist', 'stage');
 const worker = `src/background-${version}.js`;
 

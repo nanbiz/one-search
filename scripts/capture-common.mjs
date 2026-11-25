@@ -12,7 +12,7 @@ export const run = (command, args) => execFileSync(command, args, { encoding: 'u
 
 export function createStage({ screen, scale = 1, desktopColor }) {
   const display = process.env.DISPLAY;
-  if (!process.env.SYNCED_PINS_XVFB || !display) {
+  if (!process.env.ONE_SEARCH_XVFB || !display) {
     throw new Error('run this through scripts/capture-store-assets.sh, which gives the browser its own Xvfb display');
   }
   const onScreen = (command, args, options = {}) => spawn(command, args, {
