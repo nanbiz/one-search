@@ -442,29 +442,35 @@ function listingTabs() {
   return numberMode || (!siteSearch && !typed.trim());
 }
 
-// Number mode shows every tab of the window at once. Rows run down in columns
-// of up to ten, as many as the window is wide enough for, up to four; more
-// tabs make the columns longer, then the box moves up, then rows get lower.
-const PER_COLUMN = 10;
-const MAX_COLUMNS = 4;
-const MIN_COLUMN_WIDTH = 170;
-const ROW_HEIGHT = 45;
-const COLUMN_ROW_HEIGHT = 38;
+// Number mode shows every tab of the window at once, each row with its site
+// for as long as that fits: one column up to the window's height, then columns
+// wide enough for title and site, then lower rows. Only tabs that still do not
+// fit leave narrow columns of titles alone, with rows as low as it takes.
+const ROW_HEIGHTS = [45, 36];
+const FULL_WIDTH = 380;
+const TITLE_WIDTH = 170;
+const COMPACT_ROW_HEIGHT = 38;
 const MIN_ROW_HEIGHT = 22;
+const MAX_COLUMNS = 4;
 const EDGE = 24;
 const NUMBERS_PADDING = 18;
 
 function numbersLayout(count) {
-  const top = Math.max(EDGE, innerHeight / 2 - 180);
-  const space = (from) => innerHeight - from - EDGE - NUMBERS_PADDING;
-  if (count <= PER_COLUMN && count * ROW_HEIGHT <= space(top)) return { columns: 1, rows: count, height: ROW_HEIGHT, top };
-  const widest = Math.max(1, Math.min(MAX_COLUMNS, Math.floor(innerWidth * 0.92 / MIN_COLUMN_WIDTH)));
-  const fitting = Math.max(1, Math.min(PER_COLUMN, Math.floor(space(top) / COLUMN_ROW_HEIGHT)));
-  const columns = Math.min(widest, Math.ceil(count / fitting));
-  const rows = Math.ceil(count / columns);
-  const raised = Math.max(EDGE, Math.min(top, innerHeight - EDGE - NUMBERS_PADDING - rows * COLUMN_ROW_HEIGHT));
-  const height = Math.max(MIN_ROW_HEIGHT, Math.min(COLUMN_ROW_HEIGHT, Math.floor(space(raised) / rows)));
-  return { columns, rows, height, top: raised };
+  const space = innerHeight - 2 * EDGE - NUMBERS_PADDING;
+  const width = innerWidth * 0.94;
+  const columnsOf = (wide) => Math.max(1, Math.min(MAX_COLUMNS, Math.floor(width / wide)));
+  const placed = (columns, height, compact) => {
+    const rows = Math.ceil(count / columns);
+    const top = Math.max(EDGE, Math.min(Math.max(EDGE, innerHeight / 2 - 180), innerHeight - EDGE - NUMBERS_PADDING - rows * height));
+    return { columns, rows, height, top, compact, width: columns === 1 ? '' : `${Math.min(width, columns * (compact ? 290 : 540))}px` };
+  };
+  for (const height of ROW_HEIGHTS) {
+    const columns = Math.ceil(count / Math.max(1, Math.floor(space / height)));
+    if (columns <= columnsOf(FULL_WIDTH)) return placed(Math.max(1, columns), height, false);
+  }
+  const columns = Math.min(columnsOf(TITLE_WIDTH), count);
+  const height = Math.floor(space / Math.ceil(count / columns));
+  return placed(columns, Math.max(MIN_ROW_HEIGHT, Math.min(COMPACT_ROW_HEIGHT, height)), true);
 }
 
 // The list fades out at an edge it continues past. The rows' own places tell
@@ -481,12 +487,14 @@ function render() {
   showFilesOffer();
   items = listingTabs() ? tabRows() : siteSearch ? siteSearchItems(text) : results(text);
   selected = Math.min(selected, Math.max(items.length - 1, 0));
-  const { columns, rows, height, top } = numberMode ? numbersLayout(items.length) : { columns: 1 };
+  const { columns, rows, height, top, compact, width } = numberMode ? numbersLayout(items.length) : { columns: 1 };
   box.classList.toggle('numbers', numberMode);
   document.body.classList.toggle('numbers', numberMode);
   box.dataset.columns = String(columns);
   resultsList.style.gridTemplateRows = columns > 1 ? `repeat(${rows}, auto)` : '';
-  box.style.setProperty('--row', `${height ?? ROW_HEIGHT}px`);
+  box.classList.toggle('compact', compact === true);
+  box.style.width = width ?? '';
+  box.style.setProperty('--row', `${height ?? ROW_HEIGHTS[0]}px`);
   box.style.marginTop = top === undefined ? '' : `${top}px`;
   resultsList.replaceChildren();
   items.forEach((item, index) => {

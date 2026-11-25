@@ -1356,7 +1356,7 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
     const { worker, browser } = await open();
     const A = await createWindow(worker, 'A');
     let opened = 1;
-    for (const count of [5, 10, 13, 72]) {
+    for (const count of [5, 10, 13, 30, 72]) {
       await worker.run(async (windowId, urls) => {
         await Promise.all(urls.map((url) => chrome.tabs.create({ windowId, url, active: false })));
       }, A, Array.from({ length: count - opened }, (_, n) => pageUrl(`tab ${opened + n}`)));
@@ -1382,16 +1382,20 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
           scrolls: results.scrollHeight > results.clientHeight + 1,
           faded: results.matches('.above, .below'),
           keyWidths: new Set([...results.querySelectorAll('.key')].map((key) => key.offsetWidth)).size,
+          compact: document.getElementById('box').classList.contains('compact'),
+          sites: [...results.querySelectorAll('.site')].filter((site) => site.offsetWidth > 60).length,
         };
       });
       await shoot(browser, `numbers-${count}`);
-      assert.deepEqual(layout, { rows: count, outside: 0, scrolls: false, faded: false, keyWidths: 1 });
+      // Only so many may need the columns of titles alone, by the window's size.
+      const compact = count === 72 && layout.compact;
+      assert.deepEqual(layout, { rows: count, outside: 0, scrolls: false, faded: false, keyWidths: 1, compact, sites: compact ? 0 : count });
       await frame.press('Escape', { wait: false });
       await waitFor(async () => !(await overlayOpen(browser)));
     }
   });
 
-  overlayTest('number mode shows a few tabs as one list and forty in four columns', async () => {
+  overlayTest('number mode shows a few tabs as one list and forty in columns', async () => {
     const { worker, browser } = await open();
     const A = await createWindow(worker, 'A');
     for (let n = 0; n < 4; n++) await openTab(worker, A, `t${n}`, { active: false });
@@ -1405,7 +1409,7 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
     frame = await pressOverlayShortcut(browser, 'A');
     await waitFor(() => frame.run(() => document.activeElement?.id === 'query'));
     await tapAlt(frame);
-    await waitFor(() => frame.run(() => document.getElementById('box').dataset.columns === '4'));
+    await waitFor(() => frame.run(() => Number(document.getElementById('box').dataset.columns) > 1));
     await waitFor(() => frame.run(() => document.getAnimations().length === 0));
     const layout = await frame.run(() => {
       const rows = [...document.querySelectorAll('#results .row')];
@@ -1413,7 +1417,9 @@ describe('overlay and closing button', { skip, concurrency: 1 }, () => {
       const results = document.getElementById('results');
       return { rows: rows.length, columns: columns.size, keys: rows.map((row) => row.querySelector('.key').textContent).slice(-5), scrolls: results.scrollHeight > results.clientHeight + 1 };
     });
-    assert.deepEqual(layout, { rows: 40, columns: 4, keys: ['01', '02', '03', '04', '05'], scrolls: false });
+    assert.ok(layout.columns > 1);
+    delete layout.columns;
+    assert.deepEqual(layout, { rows: 40, keys: ['01', '02', '03', '04', '05'], scrolls: false });
     // A two key label: 0, then the key.
     const order = await tabsIn(worker, A);
     await pressKey(frame, '0');
