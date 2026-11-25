@@ -1194,6 +1194,8 @@ describe('overlay and toolbar button', { skip, concurrency: 1 }, () => {
       await waitFor(async () => (await overlayResults(frame))[0]?.kind === 'Type into page');
       assert.equal(await frame.run(() => document.getElementById('typing').hidden), true);
       await frame.press('Enter', { wait: false });
+      // Vivaldi leaves a page that is attached to while it loads unanswered.
+      await waitFor(() => worker.run(async (url) => (await chrome.tabs.query({ url })).some((tab) => tab.status === 'complete'), pageUrl('ask')));
       const page = await browser.page(pageUrl('ask'));
       await waitFor(() => page.run(() => document.querySelector('[role=textbox]')?.innerText.trim() === 'what is a spoon' && document.documentElement.children.length === 2));
       // Typed once, the pill gone, the box focused and nothing sent.
@@ -1211,6 +1213,8 @@ describe('overlay and toolbar button', { skip, concurrency: 1 }, () => {
       await typeInto(frame, 'another');
       await waitFor(async () => (await overlayResults(frame))[0]?.kind === 'Type into page');
       await frame.press('Enter', { wait: false });
+      // Vivaldi leaves a page that is attached to while it loads unanswered.
+      await waitFor(() => worker.run(async (url) => (await chrome.tabs.query({ url })).some((tab) => tab.status === 'complete'), pageUrl('full')));
       const full = await browser.page(pageUrl('full'));
       await waitFor(() => full.run(() => document.documentElement.children.length === 3));
       await new Promise((resolve) => setTimeout(resolve, 2500));
