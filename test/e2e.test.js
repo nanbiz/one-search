@@ -245,10 +245,29 @@ async function overlayFrame(browser) {
     const fallback = await current.worker.run(async () => (await chrome.storage.session.get('overlayFallback')).overlayFallback ?? null);
     throw new Error(`${error.message}\nfallback: ${JSON.stringify(fallback)}\ntargets: ${JSON.stringify(targets)}`);
   });
-  const frame = await browser.attach(target.targetId);
-  await current.browser.connection.send('Emulation.setFocusEmulationEnabled', { enabled: true }, frame.sessionId);
+  const frame = await focusedContext(() => browser.attach(target.targetId), async () => {
+    const again = (await browser.targets()).find((info) => info.type === 'iframe' && info.url.includes('/src/overlay.html'));
+    return again && browser.attach(again.targetId);
+  });
   await waitFor(() => frame.run(() => document.activeElement?.id === 'query'));
   return frame;
+}
+
+// A context with focus emulated in it. Vivaldi now and then replaces a page's
+// or frame's target just as it is attached to, which leaves the session
+// without a target; the target that took its place is attached to instead.
+async function focusedContext(attach, reattach) {
+  let context = await attach();
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await current.browser.connection.send('Emulation.setFocusEmulationEnabled', { enabled: true }, context.sessionId);
+      return context;
+    } catch (error) {
+      if (attempt === 3 || !/Session with given id not found/.test(error.message)) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      context = await reattach() ?? context;
+    }
+  }
 }
 
 // Presses the extension's shortcut, Ctrl+Shift+Space, on the page.
@@ -327,12 +346,11 @@ async function pressOverlayShortcut(browser, name, url = pageUrl(name)) {
     await focus(current.worker, windowId);
     await waitFor(() => current.worker.run(async (id) => (await chrome.windows.getLastFocused()).id === id, windowId));
   }
-  const page = await browser.page(url);
+  const page = await focusedContext(() => browser.page(url), () => browser.page(url));
   // The shortcut grants the extension the selected tab of the browser's
   // active window; without a window manager that need not be the window the
   // key goes to, so the page's window is made the active one.
   await current.browser.connection.send('Page.bringToFront', {}, page.sessionId);
-  await current.browser.connection.send('Emulation.setFocusEmulationEnabled', { enabled: true }, page.sessionId);
   for (let attempt = 1; ; attempt++) {
     await pressShortcut(page);
     // Which overlay the press opened: over the page, or, where the shortcut
