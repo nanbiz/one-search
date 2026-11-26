@@ -228,10 +228,12 @@ function toggleInPage(path, query, openOnly = false, deadline = 0, zoom = 1, sho
     if (event.data === 'one-search:close') close();
   }
   window.addEventListener('message', onMessage);
-  // An overlay that never gets ready leaves no invisible frame over the page.
+  // An overlay that never gets ready leaves no frame over the page. Its bar
+  // shows meanwhile and Escape closes it, so a frame slow to start on a busy
+  // machine has time, and what was typed reaches it.
   setTimeout(() => {
     if (dialog.isConnected && !ready) close();
-  }, 3000);
+  }, 10_000);
   frame.addEventListener('load', () => frame.focus());
   // Escape over the page before the frame has the keyboard closes the dialog
   // the browser's way; the overlay goes with it.
