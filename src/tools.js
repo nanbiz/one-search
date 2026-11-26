@@ -287,7 +287,7 @@ export async function replaceNewTab(tab, url, back, { found = false } = {}) {
       const page = await chrome.tabs.get(back);
       if (page.windowId === tab.windowId) {
         const frameQuery = new URLSearchParams({ mode: 'frame', tab: page.id, window: page.windowId }).toString();
-        await chrome.scripting.executeScript({ target: { tabId: page.id }, func: toggleInPage, args: [overlayPath, frameQuery, true, 0, await zoomOf(page.id)], injectImmediately: true });
+        await chrome.scripting.executeScript({ target: { tabId: page.id }, func: toggleInPage, args: [overlayPath, frameQuery, true, 0, zoomOf(page.id)], injectImmediately: true });
         await chrome.tabs.update(page.id, { active: true });
         await removeNewTab(tab);
         return;
@@ -393,11 +393,16 @@ function closeInPage() {
   document.getElementById('one-search-overlay')?.dispatchEvent(new Event('close'));
 }
 
-// How much the page is zoomed beyond the browser's default.
-async function zoomOf(tabId) {
-  const [factor, settings] = await Promise.all([chrome.tabs.getZoom(tabId), chrome.tabs.getZoomSettings(tabId)]).catch(() => [1, {}]);
-  return factor / (settings.defaultZoomFactor || 1);
-}
+// How much each tab's page is zoomed beyond the browser's default, as last
+// seen. The overlay is drawn at once with it and asks for the page's zoom
+// itself, as waiting for the browser's answer here would let the first keys
+// typed reach the page.
+const zooms = new Map();
+chrome.tabs.onZoomChange.addListener(({ tabId, newZoomFactor, zoomSettings }) => {
+  zooms.set(tabId, newZoomFactor / (zoomSettings.defaultZoomFactor || 1));
+});
+chrome.tabs.onRemoved.addListener((tabId) => zooms.delete(tabId));
+const zoomOf = (tabId) => zooms.get(tabId) ?? 1;
 
 // A shortcut kept pressed arrives every few hundredths of a second, after a
 // first pause that a press of its own can have too.
@@ -421,7 +426,8 @@ export async function toggleOverlay(tab, { shortcut = false } = {}) {
     // that draws the overlay only once it gets to it; past a moment the
     // overlay opens as a tab over a picture of the page instead. In full
     // screen it waits, as a tab would end the full screen.
-    const [window, zoom] = await Promise.all([chrome.windows.get(tab.windowId).catch(() => null), zoomOf(tab.id)]);
+    const window = await chrome.windows.get(tab.windowId).catch(() => null);
+    const zoom = zoomOf(tab.id);
     const deadline = window?.state === 'fullscreen' ? 0 : Date.now() + PAGE_ANSWER_MS;
     const injection = chrome.scripting.executeScript({ target: { tabId: tab.id }, func: toggleInPage, args: [overlayPath, query, false, deadline, zoom, shortcut], injectImmediately: true });
     const answer = await (deadline

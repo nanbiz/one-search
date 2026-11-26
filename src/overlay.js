@@ -294,6 +294,10 @@ function addressOf(text) {
 // The page's zoom leaves the overlay's size alone, also when it changes while
 // the overlay is open.
 if (mode === 'frame') {
+  const tabId = Number(params.get('tab'));
+  Promise.all([chrome.tabs.getZoom(tabId), chrome.tabs.getZoomSettings(tabId)]).then(([factor, settings]) => {
+    window.parent.postMessage({ oneSearchZoom: factor / (settings.defaultZoomFactor || 1) }, '*');
+  }, () => {});
   chrome.tabs.onZoomChange.addListener(({ tabId, newZoomFactor, zoomSettings }) => {
     if (tabId === Number(params.get('tab'))) window.parent.postMessage({ oneSearchZoom: newZoomFactor / (zoomSettings.defaultZoomFactor || 1) }, '*');
   });
