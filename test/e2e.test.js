@@ -85,7 +85,7 @@ const pageUrl = (name) => `${origin}/${name}`;
 // chrome.runtime.reload(). On restart the profile reopens its last session
 // when restoreSession is set and otherwise follows Chromium's default of
 // opening a New Tab page.
-async function start({ restoreSession = false, sandbox, extension = extensionPath, keepSetup = false, language } = {}) {
+async function start({ restoreSession = false, sandbox, extension = extensionPath, keepSetup = false, language, zoomLevel } = {}) {
   const fresh = !sandbox;
   if (fresh) {
     sandbox = await createSandbox();
@@ -99,6 +99,7 @@ async function start({ restoreSession = false, sandbox, extension = extensionPat
       brave: { enable_window_closing_confirm: false },
       browser: { edge_show_warn_before_closing_window_with_pinned_tabs_prompt: false },
       helium: { browser: { persistent_pins: browserSharesPins } },
+      ...(zoomLevel === undefined ? {} : { partition: { default_zoom_level: { x: zoomLevel } } }),
     }));
   }
   let browser;
@@ -450,6 +451,41 @@ test('the bar drawn in the page has the icon of the overlay that takes its place
 });
 
 describe('overlay and toolbar button', { skip, concurrency: 1 }, () => {
+  overlayTest('the bar drawn in the page at once lies where the overlay\'s own bar takes its place, under a default zoom other than 100 %', async (context) => {
+    const { worker, browser } = await open({ zoomLevel: Math.log(1.25) / Math.log(1.2) });
+    const A = await createWindow(worker, 'A');
+    await waitFor(() => worker.run(async (url) => (await chrome.tabs.query({ url })).some((tab) => tab.active && tab.status === 'complete'), pageUrl('A')));
+    await focus(worker, A);
+    await waitFor(() => worker.run(async (id) => (await chrome.windows.getLastFocused()).id === id, A));
+    const page = await browser.page(pageUrl('A'));
+    const paused = await shortcutWithFrameHeld(page);
+    if (!paused) return context.skip('the shortcut gave no access to the page this time');
+    // The bar drawn in the page sits in a closed shadow root, which only the
+    // DevTools protocol reaches.
+    const { connection } = current.browser;
+    const { root } = await connection.send('DOM.getDocument', { depth: -1, pierce: true }, page.sessionId);
+    const find = (node) => {
+      const at = node.attributes?.indexOf('class') ?? -1;
+      if (at >= 0 && node.attributes[at + 1] === 'box') return node;
+      for (const child of [...(node.children ?? []), ...(node.shadowRoots ?? [])]) {
+        const found = find(child);
+        if (found) return found;
+      }
+      return null;
+    };
+    const { model: { border } } = await connection.send('DOM.getBoxModel', { backendNodeId: find(root).backendNodeId }, page.sessionId);
+    const drawn = [border[0], border[1], border[2] - border[0]].map(Math.round);
+    await connection.send('Runtime.runIfWaitingForDebugger', {}, paused);
+    const frame = await overlayFrame(browser);
+    // The frame lies over the page at its left top corner, unscaled at the
+    // default zoom.
+    const own = await frame.run(() => {
+      const { left, top, width } = document.getElementById('box').getBoundingClientRect();
+      return [left, top, width].map(Math.round);
+    });
+    assert.ok(drawn.every((value, index) => Math.abs(value - own[index]) <= 1), JSON.stringify({ drawn, own }));
+  });
+
   overlayTest('letters typed between the shortcut and the overlay being ready go to its field, not to the page', async (context) => {
     const { worker, browser } = await open();
     const A = await createWindow(worker, 'A');

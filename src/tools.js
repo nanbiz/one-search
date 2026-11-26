@@ -398,11 +398,21 @@ function closeInPage() {
 // How much each tab's page is zoomed beyond the browser's default, as last
 // seen. The overlay is drawn at once with it and asks for the page's zoom
 // itself, as waiting for the browser's answer here would let the first keys
-// typed reach the page.
+// typed reach the page. It is read ahead whenever a tab is selected or loads,
+// and the default comes from the tab's zoom settings, which a zoom change
+// event does not carry.
 const zooms = new Map();
-chrome.tabs.onZoomChange.addListener(({ tabId, newZoomFactor, zoomSettings }) => {
-  zooms.set(tabId, newZoomFactor / (zoomSettings.defaultZoomFactor || 1));
+export async function pageZoom(tabId) {
+  const [factor, settings] = await Promise.all([chrome.tabs.getZoom(tabId), chrome.tabs.getZoomSettings(tabId)]);
+  return factor / (settings.defaultZoomFactor || 1);
+}
+const readZoom = (tabId) => pageZoom(tabId).then((zoom) => zooms.set(tabId, zoom), () => {});
+chrome.tabs.onZoomChange.addListener(({ tabId }) => readZoom(tabId));
+chrome.tabs.onActivated.addListener(({ tabId }) => readZoom(tabId));
+chrome.tabs.onUpdated.addListener((tabId, change) => {
+  if (change.url || change.status === 'complete') readZoom(tabId);
 });
+chrome.tabs.query({ active: true }).then((tabs) => tabs.forEach((tab) => readZoom(tab.id)), () => {});
 chrome.tabs.onRemoved.addListener((tabId) => zooms.delete(tabId));
 const zoomOf = (tabId) => zooms.get(tabId) ?? 1;
 

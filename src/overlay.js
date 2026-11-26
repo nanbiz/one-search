@@ -295,11 +295,13 @@ function addressOf(text) {
 // the overlay is open.
 if (mode === 'frame') {
   const tabId = Number(params.get('tab'));
-  Promise.all([chrome.tabs.getZoom(tabId), chrome.tabs.getZoomSettings(tabId)]).then(([factor, settings]) => {
+  // A zoom change event carries no default zoom; the tab's settings hold it.
+  const tellZoom = () => Promise.all([chrome.tabs.getZoom(tabId), chrome.tabs.getZoomSettings(tabId)]).then(([factor, settings]) => {
     window.parent.postMessage({ oneSearchZoom: factor / (settings.defaultZoomFactor || 1) }, '*');
   }, () => {});
-  chrome.tabs.onZoomChange.addListener(({ tabId, newZoomFactor, zoomSettings }) => {
-    if (tabId === Number(params.get('tab'))) window.parent.postMessage({ oneSearchZoom: newZoomFactor / (zoomSettings.defaultZoomFactor || 1) }, '*');
+  tellZoom();
+  chrome.tabs.onZoomChange.addListener((change) => {
+    if (change.tabId === tabId) tellZoom();
   });
 }
 
@@ -769,9 +771,14 @@ function glide(change) {
 }
 
 // The surface follows the box whenever its size changes otherwise, as with
-// each key typed.
+// each key typed. A resize of the frame, as when it learns the page's zoom,
+// moves the box under a glide that still runs, which then ends where the box
+// lies now.
 new ResizeObserver(placeSheet).observe(box);
-window.addEventListener('resize', placeSheet);
+window.addEventListener('resize', () => {
+  for (const animation of sheet.getAnimations()) animation.cancel();
+  placeSheet();
+});
 window.addEventListener('scroll', placeSheet, true);
 
 function setNumberMode(on) {
