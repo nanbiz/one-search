@@ -326,6 +326,19 @@ async function dismiss() {
   close();
 }
 
+// Going to another tab of the window cancels the overlay, as it does the
+// browser's own address bar: over a page it closes, and as a tab that stands
+// for a new tab it goes with its tab. Picking something selects another tab
+// too, and goes its own way.
+let picking = false;
+chrome.tabs.onActivated.addListener(async ({ tabId, windowId }) => {
+  await started;
+  if (picking || !target || windowId !== target.windowId || tabId === target.id) return;
+  await keepQuery();
+  if (mode === 'frame') close();
+  else if (params.get('newtab') === '1' || params.get('closes') === '1') await chrome.tabs.remove(target.id).catch(() => {});
+});
+
 async function keepQuery() {
   // A search of one site is not kept: its text alone would come back as a
   // search of the web.
@@ -585,6 +598,7 @@ function row(item) {
 let keyboardOnTabs = false;
 
 async function pick(index) {
+  picking = true;
   const item = items[index];
   if (!item) return;
   // Over a page the overlay is hidden, and that painted, before it acts: the

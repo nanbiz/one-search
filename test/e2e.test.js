@@ -995,6 +995,40 @@ describe('overlay and toolbar button', { skip, concurrency: 1 }, () => {
     await waitFor(() => worker.run(async (id) => (await chrome.tabs.get(id)).active, before.id));
   });
 
+  overlayTest('going to another tab closes the overlay, over a page and as a tab of its own, and what was typed comes back', async () => {
+    const { worker, browser } = await open();
+    const A = await createWindow(worker, 'A');
+    const [first] = await tabsIn(worker, A);
+    const other = await openTab(worker, A, 'other', { active: false });
+    const frame = await pressOverlayShortcut(browser, 'A');
+    await typeInto(frame, 'half typed');
+    await worker.run((id) => chrome.tabs.update(id, { active: true }), other);
+    await waitFor(async () => !(await overlayOpen(browser)));
+    await worker.run((id) => chrome.tabs.update(id, { active: true }), first.id);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    assert.equal(await overlayOpen(browser), false);
+    const again = await pressOverlayShortcut(browser, 'A');
+    await waitFor(() => again.run(() => document.getElementById('query').value === 'half typed'));
+    await again.press('Escape', { wait: false });
+    await waitFor(async () => !(await overlayOpen(browser)));
+    // As a tab that stands for a new tab, it goes with its tab.
+    // A New Tab page right after the shortcut is the browser's own answer to
+    // it, which the extension closes.
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    await worker.run(async (windowId) => chrome.tabs.create({ windowId, url: 'chrome://newtab/' }), A);
+    let created;
+    await waitFor(async () => {
+      created = await worker.run(async (windowId) => (await chrome.tabs.query({ windowId }))
+        .find((tab) => (tab.pendingUrl || tab.url).includes('/src/overlay.html?mode=tab&newtab=1') && tab.status === 'complete')?.id, A);
+      return created;
+    });
+    const page = await browser.page((url) => url.includes('/src/overlay.html?mode=tab&newtab=1'));
+    await waitFor(() => page.run(() => document.activeElement?.id === 'query'));
+    await worker.run((id) => chrome.tabs.update(id, { active: true }), other);
+    await waitFor(async () => (await worker.run((id) => chrome.tabs.get(id).then(() => true, () => false), created)) === false);
+    assert.deepEqual((await tabsIn(worker, A)).map((tab) => [tab.id, tab.active]), [[first.id, false], [other, true]]);
+  });
+
   overlayTest('text selected in the field shows as a selection, and only a filled-in address as grey text', async () => {
     const { browser } = await open();
     const { worker } = current;
