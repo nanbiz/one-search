@@ -59,6 +59,11 @@ body.tab #box {
   overflow: hidden;
 }
 
+/* Until the box opens out of its bar, the offers wait with the rows. */
+#box.opening .offer {
+  display: none;
+}
+
 /* The box's surface, border and shadow are a layer of their own behind its
    content, laid over the box, so a change of the box's size animates on this
    layer alone. */

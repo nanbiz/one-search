@@ -759,6 +759,11 @@ function glide(change) {
   if (after.width > 0 && after.height > 0 && (before.width !== after.width || before.height !== after.height || before.top !== after.top)) {
     const place = ({ left, top, width, height }) => ({ left: `${left}px`, top: `${top}px`, width: `${width}px`, height: `${height}px` });
     sheet.animate([place(before), place(after)], GLIDE);
+    // What the box holds already lies at its new size; it shows only as far
+    // as the surface has grown.
+    const radius = getComputedStyle(sheet).borderRadius;
+    const inset = `inset(${before.top - after.top}px ${after.right - before.right}px ${after.bottom - before.bottom}px ${before.left - after.left}px round ${radius})`;
+    box.animate([{ clipPath: inset }, { clipPath: `inset(0 round ${radius})` }], GLIDE);
   }
   for (const row of resultsList.querySelectorAll('.row')) {
     const was = rows.get(row.dataset.key);
@@ -1036,9 +1041,7 @@ document.getElementById('history-dismiss').addEventListener('click', async () =>
 });
 
 async function start() {
-  offerSetup();
-  offerHistory();
-  offerPages();
+  const offered = Promise.all([offerSetup(), offerHistory(), offerPages()]).catch(() => {});
   // Everything the first picture needs is read at once.
   let self;
   let dismissals;
@@ -1074,8 +1077,24 @@ async function start() {
     typed = kept.text;
     query.select();
   }
-  // The box opens out from the bar the page drew while this frame loaded.
-  glide(render);
+  // The box opens out from its bar, with the rows and offers in one go. Over
+  // a page the bar the page drew stays until the page shows this frame,
+  // which then has only its bar drawn, so the box opens once it can be seen.
+  await offered;
+  const openBox = () => glide(() => {
+    box.classList.remove('opening');
+    render();
+  });
+  if (mode === 'frame') {
+    const onShown = (event) => {
+      if (event.source !== window.parent || event.data !== 'one-search:shown') return;
+      window.removeEventListener('message', onShown);
+      openBox();
+    };
+    window.addEventListener('message', onShown);
+  } else {
+    openBox();
+  }
   query.focus();
   // History is read and indexed once the overlay shows, since thousands of
   // pages hold up its first picture by tens of milliseconds; text typed

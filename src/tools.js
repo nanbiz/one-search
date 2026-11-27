@@ -221,6 +221,7 @@ function toggleInPage(path, query, openOnly = false, deadline = 0, zoom = 1, sho
         show(true);
         frame.focus();
         release();
+        frame.contentWindow.postMessage('one-search:shown', '*');
         if (held) frame.contentWindow.postMessage({ oneSearchTyped: held }, '*');
       });
     }
