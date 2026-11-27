@@ -227,11 +227,15 @@ class Context {
   }
 
   async run(fn, ...args) {
+    // A call that fails names the function it ran, which the timer that ends
+    // a call without an answer cannot tell from its own stack.
     const { result, exceptionDetails } = await this.connection.send('Runtime.evaluate', {
       expression: `(${fn})(...${JSON.stringify(args)})`,
       awaitPromise: true,
       returnByValue: true,
-    }, this.sessionId);
+    }, this.sessionId).catch((error) => {
+      throw new Error(`${error.message}: ${String(fn).slice(0, 160)}`, { cause: error });
+    });
     if (exceptionDetails) {
       throw new Error(exceptionDetails.exception?.description ?? exceptionDetails.text);
     }

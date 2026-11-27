@@ -335,7 +335,14 @@ async function shortcutWithFrameHeld(page) {
   await current.browser.connection.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true }, page.sessionId);
   pressShortcut(page);
   const started = await Promise.race([frameStarted.then(() => true), new Promise((resolve) => setTimeout(resolve, 8_000, false))]);
-  return started ? paused : null;
+  if (!started) return null;
+  // Vivaldi loses keys sent within a moment of its shortcut before any script
+  // of the page sees them, even with the overlay's listeners in place; the
+  // frame stays held meanwhile, so what is typed after still meets an
+  // overlay that is not ready.
+  await waitFor(() => page.run(() => document.getElementById('one-search-overlay')?.open === true));
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  return paused;
 }
 
 async function pressOverlayShortcut(browser, name, url = pageUrl(name)) {
@@ -513,7 +520,10 @@ describe('overlay and toolbar button', { skip, concurrency: 1 }, () => {
     }
     await current.browser.connection.send('Runtime.runIfWaitingForDebugger', {}, paused);
     const frame = await overlayFrame(browser);
-    await waitFor(() => frame.run(() => document.getElementById('query').value.startsWith('youtube')));
+    await waitFor(() => frame.run(() => document.getElementById('query').value.startsWith('youtube'))).catch(async (error) => {
+      const seen = { query: await frame.run(() => document.getElementById('query').value), page: await page.run(() => [window.pageKeys, window.pagePastes]) };
+      throw new Error(`${error.message}\n${JSON.stringify(seen)}`);
+    });
     // Vivaldi passes the shortcut's own Space to the page as well; no typed
     // letter may arrive there.
     assert.equal((await page.run(() => window.pageKeys)).replace(/[^a-z]/g, ''), '');
@@ -544,7 +554,10 @@ describe('overlay and toolbar button', { skip, concurrency: 1 }, () => {
     }
     await current.browser.connection.send('Runtime.runIfWaitingForDebugger', {}, paused);
     const frame = await overlayFrame(browser);
-    await waitFor(() => frame.run(() => document.getElementById('query').value.startsWith('example.org/pasted')));
+    await waitFor(() => frame.run(() => document.getElementById('query').value.startsWith('example.org/pasted'))).catch(async (error) => {
+      const seen = { query: await frame.run(() => document.getElementById('query').value), page: await page.run(() => [window.pageKeys, window.pagePastes]) };
+      throw new Error(`${error.message}\n${JSON.stringify(seen)}`);
+    });
     assert.equal(await page.run(() => window.pagePastes), 0);
   });
 
@@ -1732,9 +1745,9 @@ describe('overlay and toolbar button', { skip, concurrency: 1 }, () => {
   });
 
   overlayTest('a browser in German, where Ctrl+T reads Strg+T, offers no setup once the overlay is on it', async (context) => {
-    // Vivaldi on the CI runner reads Strg+T too, but the overlay tab this test
-    // opens never answers there.
-    if (/vivaldi/i.test(executable ?? '')) return context.skip('the overlay tab the test opens never answers in Vivaldi on the CI runner');
+    // Vivaldi reads Strg+T too, but the overlay tab this test opens stays
+    // blank there, without an address or a title.
+    if (/vivaldi/i.test(executable ?? '')) return context.skip('the overlay tab this test opens stays blank in Vivaldi');
     const { worker, browser } = await open({ language: 'de' });
     const extensions = await worker.run(async () => (await chrome.tabs.create({ url: 'chrome://extensions' })).id);
     await waitFor(() => worker.run(async (id) => (await chrome.tabs.get(id)).status === 'complete', extensions));
@@ -1749,7 +1762,7 @@ describe('overlay and toolbar button', { skip, concurrency: 1 }, () => {
     });
     console.log(`# Ctrl+T reads ${shortcut}`);
     assert.notEqual(shortcut, 'Ctrl+T', 'the browser did not take the German interface');
-    await worker.run(() => chrome.tabs.create({ url: chrome.runtime.getURL('src/overlay.html?mode=tab') }));
+    await worker.run(() => chrome.tabs.create({ url: `chrome-extension://${chrome.runtime.id}/src/overlay.html?mode=tab` }));
     // A page can be found before its document runs, so it is asked until it
     // answers.
     const loaded = (page) => waitFor(() => page.run(() => document.readyState === 'complete').catch(() => false));
