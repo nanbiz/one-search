@@ -10,7 +10,10 @@ const params = new URLSearchParams(location.search);
 const mode = params.get('mode') ?? 'tab';
 // The overlay's own tab is given up for whatever is picked.
 const replacing = mode === 'tab';
-const overlayPage = chrome.runtime.getURL('src/overlay.html');
+// The extension's fixed address, where the overlay opens as a tab, and the
+// one chrome.runtime.getURL gives, which use_dynamic_url can make new for
+// every browser start.
+const overlayPages = [`chrome-extension://${chrome.runtime.id}/src/overlay.html`, chrome.runtime.getURL('src/overlay.html')];
 
 // The text of an overlay closed without a choice is kept for this long, so
 // opening it again over the same tab brings the text back.
@@ -34,7 +37,7 @@ let items = [];
 let selected = 0;
 
 function isOverlay(tab) {
-  return (tab.pendingUrl || tab.url || '').startsWith(overlayPage);
+  return overlayPages.some((page) => (tab.pendingUrl || tab.url || '').startsWith(page));
 }
 
 // An address as the row shows it beside the title: host and path, without

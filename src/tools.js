@@ -3,6 +3,11 @@
 // worker.
 
 const overlayPath = 'src/overlay.html';
+// The overlay as a tab of its own lives at the extension's fixed address.
+// chrome.runtime.getURL can give the address a page's frame of it gets, which
+// web_accessible_resources' use_dynamic_url makes new for every browser start,
+// and Vivaldi leaves a tab opened there blank now and then.
+const overlayTabUrl = (query = '') => `chrome-extension://${chrome.runtime.id}/${overlayPath}${query && `?${query}`}`;
 // chrome.tabGroups.TAB_GROUP_ID_NONE, without the tabGroups permission that
 // API needs.
 const NO_TAB_GROUP = -1;
@@ -18,7 +23,7 @@ const openingIn = new Set();
 const justOpened = new Set();
 
 function isOverlayTab(tab) {
-  return justOpened.has(tab.id) || (tab.pendingUrl || tab.url || '').startsWith(chrome.runtime.getURL(overlayPath));
+  return justOpened.has(tab.id) || [overlayTabUrl(), chrome.runtime.getURL(overlayPath)].some((page) => (tab.pendingUrl || tab.url || '').startsWith(page));
 }
 
 // Opens the overlay as a tab with what open() does first, once per window
@@ -308,7 +313,7 @@ export async function replaceNewTab(tab, url, back, { found = false } = {}) {
   const active = found ? tab.active : true;
   let overlay;
   try {
-    overlay = await chrome.tabs.create({ windowId: tab.windowId, index: tab.index, active, url: chrome.runtime.getURL(`${overlayPath}?${query}`) });
+    overlay = await chrome.tabs.create({ windowId: tab.windowId, index: tab.index, active, url: overlayTabUrl(query) });
   } catch {
     return;
   }
@@ -385,7 +390,7 @@ function openOverPicture(tab) {
     const image = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality: 70 }).catch(() => null);
     if (image) await chrome.storage.session.set({ overlayPicture: { tabId: tab.id, image } }).catch(() => {});
     const query = new URLSearchParams({ mode: 'tab', closes: '1', back: tab.id, picture: '1' });
-    return chrome.tabs.create({ windowId: tab.windowId, index: tab.index + 1, active: true, url: chrome.runtime.getURL(`${overlayPath}?${query}`) }).catch(() => null);
+    return chrome.tabs.create({ windowId: tab.windowId, index: tab.index + 1, active: true, url: overlayTabUrl(query) }).catch(() => null);
   }).then((created) => created?.id);
 }
 
@@ -488,7 +493,7 @@ export async function toggleOverlay(tab, { shortcut = false } = {}) {
         },
       });
       const query = new URLSearchParams({ mode: 'tab', closes: '1', back: tab.id });
-      return chrome.tabs.create({ windowId: tab.windowId, index: tab.index + 1, active: true, url: chrome.runtime.getURL(`${overlayPath}?${query}`) });
+      return chrome.tabs.create({ windowId: tab.windowId, index: tab.index + 1, active: true, url: overlayTabUrl(query) });
     });
   }
 }

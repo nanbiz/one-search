@@ -161,7 +161,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   }
   if (message?.type === 'openSearchText' && sender.tab && sender.frameId === 0) learnFromPage(sender.url, message.text).catch(() => {});
   if (message?.type === 'textBox' && sender.tab && sender.frameId === 0) learnTextBox(sender.url).catch(() => {});
-  if (message?.type === 'typeInto' && sender.url?.startsWith(chrome.runtime.getURL(''))) typeInto(message).catch(() => {});
+  if (message?.type === 'typeInto' && sender.id === chrome.runtime.id && sender.url?.startsWith('chrome-extension://')) typeInto(message).catch(() => {});
   if (message?.type === 'openSetup') openSetup(message.windowId);
   if (message?.type === 'overlayReady') overlayReady(message.tabId, message.frameStarted, message.ready, message.loaded);
   if (message?.type === 'closeOtherTabs') {
