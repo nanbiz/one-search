@@ -250,7 +250,9 @@ async function overlayFrame(browser) {
     const again = (await browser.targets()).find((info) => info.type === 'iframe' && info.url.includes('/src/overlay.html'));
     return again && browser.attach(again.targetId);
   });
-  await waitFor(() => frame.run(() => document.activeElement?.id === 'query'));
+  // The box opens once the page has shown the frame and given it the
+  // keyboard; text sent to the frame before then reaches no field.
+  await waitFor(() => frame.run(() => document.activeElement?.id === 'query' && !document.getElementById('box').classList.contains('opening')));
   return frame;
 }
 
@@ -421,6 +423,20 @@ async function clickButton(worker, tabId, entry) {
     if (menuItemId) chrome.contextMenus.onClicked.dispatch({ menuItemId }, tab);
     else chrome.action.onClicked.dispatch(tab);
   }, tabId, entry);
+}
+
+// The selected row carries the Tab key; a wait that ends without it says
+// which rows the overlay showed.
+async function tabKeyShown(frame) {
+  await waitFor(() => frame.run(() => document.querySelector('#results .row.selected .tabkey') !== null)).catch(async (error) => {
+    const seen = await frame.run(() => ({
+      query: document.getElementById('query').value,
+      opening: document.getElementById('box').classList.contains('opening'),
+      focused: [document.hasFocus(), document.activeElement?.id],
+      rows: [...document.querySelectorAll('#results .row')].map((row) => `${row.classList.contains('selected') ? '>' : ''}${row.textContent.slice(0, 60)}`),
+    }));
+    throw new Error(`${error.message}\n${JSON.stringify(seen)}`);
+  });
 }
 
 async function typeInto(frame, text) {
@@ -1211,7 +1227,7 @@ describe('overlay and toolbar button', { skip, concurrency: 1 }, () => {
       await typeInto(frame, 'youtu');
       // The site row, selected, carries the Tab key once the list of
       // searches is read.
-      await waitFor(() => frame.run(() => document.querySelector('#results .row.selected .tabkey') !== null));
+      await tabKeyShown(frame);
       await frame.press('Tab');
       await waitFor(() => frame.run(() => !document.getElementById('chip').hidden));
       assert.deepEqual(await frame.run(() => [document.getElementById('chip').textContent, document.getElementById('query').value]), ['youtube.com', '']);
@@ -1224,7 +1240,7 @@ describe('overlay and toolbar button', { skip, concurrency: 1 }, () => {
       await worker.run((id) => chrome.tabs.update(id, { active: true }), first);
       const again = await pressOverlayShortcut(browser, 'A');
       await typeInto(again, 'youtu');
-      await waitFor(() => again.run(() => document.querySelector('#results .row.selected .tabkey') !== null));
+      await tabKeyShown(again);
       await again.press('Tab');
       await waitFor(() => again.run(() => !document.getElementById('chip').hidden));
       await again.press('Backspace');
@@ -1282,10 +1298,7 @@ describe('overlay and toolbar button', { skip, concurrency: 1 }, () => {
       const enter = async () => {
         const frame = await pressOverlayShortcut(browser, 'A');
         await typeInto(frame, '127');
-        await waitFor(() => frame.run(() => document.querySelector('#results .row.selected .tabkey') !== null)).catch(async (error) => {
-          const seen = await frame.run(() => ({ query: document.getElementById('query').value, opening: document.getElementById('box').classList.contains('opening'), rows: [...document.querySelectorAll('#results .row')].map((row) => `${row.classList.contains('selected') ? '>' : ''}${row.textContent.slice(0, 60)}`) }));
-          throw new Error(`${error.message}\n${JSON.stringify(seen)}`);
-        });
+        await tabKeyShown(frame);
         await frame.press('Tab');
         await waitFor(() => frame.run(() => !document.getElementById('chip').hidden));
         return frame;
