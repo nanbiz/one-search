@@ -85,8 +85,15 @@ function toggleInPage(path, query, openOnly = false, deadline = 0, zoom = 1, sho
     dialog.dataset.released = '1';
   };
   window.addEventListener('keyup', onRelease, true);
+  // The blur is drawn anew over its whole area in every frame. A redraw of
+  // part of it, as the overlay's frame changes, blurs again what the last
+  // frame blurred around that part, which some setups show as a rectangle
+  // with dark inner edges (crbug.com/41471914). Its opacity, drifting between
+  // two values no one can tell apart, makes the compositor redraw all of it.
   const backdrop = new CSSStyleSheet();
-  backdrop.replaceSync(`#${id}:not([open]){display:none!important}#${id}::backdrop{background:transparent}#${id}.shown::backdrop{background:rgb(0 0 0 / 0.45);backdrop-filter:blur(3px)}`);
+  backdrop.replaceSync(`#${id}:not([open]){display:none!important}#${id}::backdrop{background:transparent}`
+    + `#${id}.shown::backdrop{background:rgb(0 0 0 / 0.45);backdrop-filter:blur(3px);animation:${id}-redraw 1s linear infinite alternate}`
+    + `@keyframes ${id}-redraw{from{opacity:0.998}to{opacity:0.999}}`);
   document.adoptedStyleSheets = [...document.adoptedStyleSheets, backdrop];
   const frame = document.createElement('iframe');
   frame.src = `${chrome.runtime.getURL(path)}?${query}`;
