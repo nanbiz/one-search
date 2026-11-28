@@ -647,6 +647,8 @@ describe('overlay and toolbar button', { skip, concurrency: 1 }, () => {
       throw error;
     });
     if (!opened || !(await overlayTab())) throw new NoOverlayInPage('Vivaldi gives the extension no access to the page on the CI runner, so the overlay opens as a plain tab or not over the page');
+    // Vivaldi leaves a page that is attached to while it loads unanswered.
+    await waitFor(() => worker.run(async (windowId) => (await chrome.tabs.query({ windowId })).some((tab) => tab.url.includes('/src/overlay.html?mode=tab') && tab.status === 'complete'), A));
     const overlay = await browser.page((url) => url.includes('/src/overlay.html?mode=tab'));
     await waitFor(() => overlay.run(() => document.body?.classList.contains('picture') === true));
     // The page's own code, run once the page is free, opens nothing more.
@@ -1280,7 +1282,10 @@ describe('overlay and toolbar button', { skip, concurrency: 1 }, () => {
       const enter = async () => {
         const frame = await pressOverlayShortcut(browser, 'A');
         await typeInto(frame, '127');
-        await waitFor(() => frame.run(() => document.querySelector('#results .row.selected .tabkey') !== null));
+        await waitFor(() => frame.run(() => document.querySelector('#results .row.selected .tabkey') !== null)).catch(async (error) => {
+          const seen = await frame.run(() => ({ query: document.getElementById('query').value, opening: document.getElementById('box').classList.contains('opening'), rows: [...document.querySelectorAll('#results .row')].map((row) => `${row.classList.contains('selected') ? '>' : ''}${row.textContent.slice(0, 60)}`) }));
+          throw new Error(`${error.message}\n${JSON.stringify(seen)}`);
+        });
         await frame.press('Tab');
         await waitFor(() => frame.run(() => !document.getElementById('chip').hidden));
         return frame;
@@ -1745,9 +1750,6 @@ describe('overlay and toolbar button', { skip, concurrency: 1 }, () => {
   });
 
   overlayTest('a browser in German, where Ctrl+T reads Strg+T, offers no setup once the overlay is on it', async (context) => {
-    // Vivaldi reads Strg+T too, but the overlay tab this test opens stays
-    // blank there, without an address or a title.
-    if (/vivaldi/i.test(executable ?? '')) return context.skip('the overlay tab this test opens stays blank in Vivaldi');
     const { worker, browser } = await open({ language: 'de' });
     const extensions = await worker.run(async () => (await chrome.tabs.create({ url: 'chrome://extensions' })).id);
     await waitFor(() => worker.run(async (id) => (await chrome.tabs.get(id)).status === 'complete', extensions));
@@ -1766,6 +1768,9 @@ describe('overlay and toolbar button', { skip, concurrency: 1 }, () => {
     // A page can be found before its document runs, so it is asked until it
     // answers.
     const loaded = (page) => waitFor(() => page.run(() => document.readyState === 'complete').catch(() => false));
+    // Vivaldi leaves a page that is attached to while it loads unanswered.
+    const complete = (path) => waitFor(() => worker.run(async (path) => (await chrome.tabs.query({})).some((tab) => tab.url.includes(path) && tab.status === 'complete'), path));
+    await complete('/src/overlay.html?mode=tab');
     const overlay = await browser.page((url) => url.includes('/src/overlay.html?mode=tab'));
     await loaded(overlay);
     // The overlay decides on the row from these two reads; the same reads
@@ -1777,6 +1782,7 @@ describe('overlay and toolbar button', { skip, concurrency: 1 }, () => {
     });
     assert.equal(setupHidden, true);
     await worker.run(() => chrome.tabs.create({ url: chrome.runtime.getURL('src/welcome.html') }));
+    await complete('/src/welcome.html');
     const welcome = await browser.page((url) => url.endsWith('/src/welcome.html'));
     await loaded(welcome);
     await waitFor(() => welcome.run(() => !document.getElementById('done').hidden));

@@ -3,10 +3,10 @@
 // worker.
 
 const overlayPath = 'src/overlay.html';
-// The overlay as a tab of its own lives at the extension's fixed address.
-// chrome.runtime.getURL can give the address a page's frame of it gets, which
-// web_accessible_resources' use_dynamic_url makes new for every browser start,
-// and Vivaldi leaves a tab opened there blank now and then.
+// The overlay as a tab of its own lives at the extension's fixed address,
+// which stays the same across browser starts. chrome.runtime.getURL can give
+// the address a page's frame of it gets, which web_accessible_resources'
+// use_dynamic_url makes new for every start.
 const overlayTabUrl = (query = '') => `chrome-extension://${chrome.runtime.id}/${overlayPath}${query && `?${query}`}`;
 // chrome.tabGroups.TAB_GROUP_ID_NONE, without the tabGroups permission that
 // API needs.

@@ -532,6 +532,9 @@ function showMore() {
 }
 
 function render() {
+  // The box opens out of its bar with its first rows; until then what
+  // changes them is drawn with them.
+  if (box.classList.contains('opening')) return;
   const text = typed;
   showFilesOffer();
   items = listingTabs() ? tabRows() : siteSearch ? siteSearchItems(text) : results(text);
